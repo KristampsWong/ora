@@ -14,5 +14,10 @@ struct oraApp: App {
             ContentView()
         }
         .windowResizability(.contentSize)
+
+        MenuBarExtra("Ora", systemImage: "waveform") {
+            MenuBarView()
+        }
+        .menuBarExtraStyle(.menu)
     }
 }
