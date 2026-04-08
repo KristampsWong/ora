@@ -67,8 +67,15 @@ struct ModelsPage: View {
         case .all: models
         case .local: models.filter(\.isLocal)
         case .api: models.filter(\.isOnline)
-
         }
+    }
+
+    private var localModels: [ModelEntry] {
+        filteredModels.filter(\.isLocal)
+    }
+
+    private var apiModels: [ModelEntry] {
+        filteredModels.filter { !$0.isLocal }
     }
 
     var body: some View {
@@ -84,17 +91,36 @@ struct ModelsPage: View {
                     .padding(.horizontal, 20)
                 }
 
-                // Model cards
-                VStack(spacing: 10) {
-                    ForEach(filteredModels) { model in
-                        modelCard(model)
+                // Grouped model lists
+                VStack(alignment: .leading, spacing: 18) {
+                    if !localModels.isEmpty {
+                        modelGroup(title: "Local Models", entries: localModels)
+                    }
+                    if !apiModels.isEmpty {
+                        modelGroup(title: "API Models", entries: apiModels)
                     }
                 }
-                .padding(.horizontal,20)
-              
+                .padding(.horizontal, 20)
             }
             .padding(.top, 12)
             .padding(.bottom, 20)
+        }
+    }
+
+    // MARK: - Model Group
+
+    private func modelGroup(title: String, entries: [ModelEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+
+            VStack(spacing: 10) {
+                ForEach(entries) { model in
+                    modelCard(model)
+                }
+            }
         }
     }
 
