@@ -94,10 +94,14 @@ struct ModelsPage: View {
                 // Grouped model lists
                 VStack(alignment: .leading, spacing: 18) {
                     if !localModels.isEmpty {
-                        modelGroup(title: "Local Models", entries: localModels)
+                        modelGroup(title: "Local Models", entries: localModels) { model in
+                            localModelCard(model)
+                        }
                     }
                     if !apiModels.isEmpty {
-                        modelGroup(title: "API Models", entries: apiModels)
+                        modelGroup(title: "API Models", entries: apiModels) { model in
+                            apiModelCard(model)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -109,7 +113,11 @@ struct ModelsPage: View {
 
     // MARK: - Model Group
 
-    private func modelGroup(title: String, entries: [ModelEntry]) -> some View {
+    private func modelGroup<Card: View>(
+        title: String,
+        entries: [ModelEntry],
+        @ViewBuilder card: @escaping (ModelEntry) -> Card
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
                 .font(.system(size: 11, weight: .semibold))
@@ -118,7 +126,7 @@ struct ModelsPage: View {
 
             VStack(spacing: 10) {
                 ForEach(entries) { model in
-                    modelCard(model)
+                    card(model)
                 }
             }
         }
@@ -151,29 +159,27 @@ struct ModelsPage: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Model Card
+    // MARK: - Local Model Card
 
-    private func modelCard(_ model: ModelEntry) -> some View {
+    private func localModelCard(_ model: ModelEntry) -> some View {
         let isSelected = selectedModelId == model.id
 
         return HStack(alignment: .top, spacing: 10) {
-            // Icon
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
                 .frame(width: 32, height: 32)
                 .overlay(
-                    Image(systemName: model.isLocal ? "eye" : "cloud.fill")
+                    Image(systemName: "eye")
                         .font(.system(size: 14))
-                        .foregroundStyle(model.isLocal ? .green : .blue)
+                        .foregroundStyle(.green)
                 )
 
             VStack(alignment: .leading, spacing: 6) {
-                // Name + badge + status control
                 HStack(spacing: 6) {
                     Text(model.name)
                         .font(.system(size: 13, weight: .semibold))
 
-                    if model.isLocal, let badge = model.badge {
+                    if let badge = model.badge {
                         Text(badge)
                             .font(.system(size: 10, weight: .semibold))
                             .padding(.horizontal, 6)
@@ -185,45 +191,26 @@ struct ModelsPage: View {
 
                     Spacer()
 
-                    if model.isLocal {
-                        downloadControl(model)
-                    } else {
-                        settingsButton(model)
-                    }
+                    downloadControl(model)
                 }
 
-                // Description
                 Text(model.description)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                // Attribute chips (local only)
-                if model.isLocal {
-                    ChipFlowLayout(spacing: 3) {
-                        ratingChip("scope", filled: model.accuracy, total: 5)
-                        ratingChip("bolt.fill", filled: model.speed, total: 5)
-                        attributeChip("internaldrive", model.size)
-                        attributeChip("globe", model.language)
-                        attributeChip("desktopcomputer", "Local")
-                    }
+                ChipFlowLayout(spacing: 3) {
+                    ratingChip("scope", filled: model.accuracy, total: 5)
+                    ratingChip("bolt.fill", filled: model.speed, total: 5)
+                    attributeChip("internaldrive", model.size)
+                    attributeChip("globe", model.language)
+                    attributeChip("desktopcomputer", "Local")
                 }
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected
-                      ? Color.blue.opacity(0.08)
-                      : Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(
-                    isSelected ? Color.blue : Color.secondary.opacity(0.15),
-                    lineWidth: isSelected ? 1.5 : 0.5
-                )
-        )
+        .background(cardBackground(isSelected: isSelected))
+        .overlay(cardBorder(isSelected: isSelected))
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -248,6 +235,66 @@ struct ModelsPage: View {
         } message: {
             Text("Are you sure you want to remove \"\(model.name)\"? You can download it again later.")
         }
+    }
+
+    // MARK: - API Model Card
+
+    private func apiModelCard(_ model: ModelEntry) -> some View {
+        let isSelected = selectedModelId == model.id
+
+        return HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: "cloud.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.blue)
+                )
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(model.name)
+                        .font(.system(size: 13, weight: .semibold))
+
+                    Spacer()
+
+                    settingsButton(model)
+                }
+
+                Text(model.description)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2, reservesSpace: true)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(cardBackground(isSelected: isSelected))
+        .overlay(cardBorder(isSelected: isSelected))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if case .downloaded = model.status {
+                selectedModelId = model.id
+            }
+        }
+    }
+
+    // MARK: - Card Chrome (shared)
+
+    private func cardBackground(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(isSelected
+                  ? Color.blue.opacity(0.08)
+                  : Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    private func cardBorder(isSelected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(
+                isSelected ? Color.blue : Color.secondary.opacity(0.15),
+                lineWidth: isSelected ? 1.5 : 0.5
+            )
     }
 
     // MARK: - Settings Button (cloud / API models)
