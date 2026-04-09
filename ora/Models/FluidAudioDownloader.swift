@@ -71,11 +71,21 @@ extension FluidAudioDownloader {
         do {
             _ = try await AsrModels.download(version: v, progressHandler: { progress in
                 let status = Self.statusFromProgress(progress)
-                Task { @MainActor in
-                    onProgress(status)
+                // Hop to the main actor via DispatchQueue to preserve FIFO
+                // order. An unstructured Task { @MainActor in ... } could in
+                // principle reorder closely-spaced progress events, which
+                // would be visible as a stuck final state (e.g., extracting
+                // landing before the last downloading tick).
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        onProgress(status)
+                    }
                 }
             })
         } catch is CancellationError {
+            // Re-throw as-is so the caller sees CancellationError rather than
+            // a Failure.underlying wrapper — ModelManager relies on this to
+            // transition to .paused instead of .error.
             throw CancellationError()
         } catch {
             throw Failure.underlying(error)
