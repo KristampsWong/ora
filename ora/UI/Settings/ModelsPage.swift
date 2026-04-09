@@ -28,31 +28,6 @@ private enum ModelFilter: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Mock Model
-
-struct ModelEntry: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let description: String
-    let badge: String?
-    let accuracy: Int
-    let speed: Int
-    let size: String
-    let language: String
-    let isLocal: Bool
-    let isOnline: Bool
-    var status: Status
-
-    enum Status: Equatable {
-        case downloaded
-        case notDownloaded
-        case downloading(progress: Double)
-        case paused(progress: Double)
-        case extracting
-        case error(message: String)
-    }
-}
-
 // MARK: - Main View
 
 struct ModelsPage: View {
