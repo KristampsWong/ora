@@ -3,7 +3,8 @@
 //  ora
 //
 //  Models page — browser for local + API transcription models.
-//  No backend wiring: mock model list, local @State, no real downloads.
+//  Reads the catalog from ModelManager in the environment; mutations
+//  (download / cancel / remove) go through manager methods on the cards.
 //
 
 import SwiftUI

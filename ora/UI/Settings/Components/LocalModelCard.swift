@@ -15,8 +15,9 @@ struct LocalModelCard: View {
     @Environment(ModelManager.self) private var modelManager
 
     /// Notifies the parent that this model was just removed, so it can clear
-    /// `selectedModelId` if it was pointing here. Card-local state is updated
-    /// before this fires.
+    /// `selectedModelId` if it was pointing here. The catalog has already
+    /// been updated by `ModelManager` when this fires; if `remove` threw,
+    /// this callback does NOT fire.
     var onRemoved: () -> Void = {}
 
     private var isSelected: Bool { selectedModelId == model.id }
@@ -210,8 +211,15 @@ struct LocalModelCard: View {
     }
 
     private func handleRemove() {
-        try? modelManager.remove(model.id)
-        onRemoved()
+        do {
+            try modelManager.remove(model.id)
+            onRemoved()
+        } catch {
+            // v1: swallow the error per spec (remove failures are rare;
+            // the on-disk state recovers on next app launch). Critically,
+            // do NOT fire onRemoved() — the model is still .downloaded
+            // and the parent must not clear selectedModelId.
+        }
     }
 }
 
