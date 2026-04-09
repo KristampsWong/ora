@@ -142,6 +142,14 @@ extension ModelManager {
         catalog[index].status = .notDownloaded
     }
 
+    /// Returns true iff `catalog` has an entry with this id whose
+    /// status is `.downloaded`. Used by DictationCoordinator's
+    /// preflight check to fail fast before kicking the recorder.
+    /// Unknown ids return false.
+    func isInstalled(_ id: String) -> Bool {
+        catalog.first(where: { $0.id == id })?.status == .downloaded
+    }
+
     // MARK: - Internal helpers
 
     private func update(id: String, status: ModelEntry.Status) {
