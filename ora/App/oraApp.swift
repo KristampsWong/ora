@@ -12,11 +12,13 @@ import SwiftUI
 struct oraApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var preferences = Preferences.shared
+    @State private var modelManager = ModelManager.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(preferences)
+                .environment(modelManager)
                 .onChange(of: preferences.showInDock) { _, newValue in
                     AppearanceController.applyDockVisibility(newValue)
                 }
@@ -36,6 +38,7 @@ struct oraApp: App {
         ) {
             MenuBarView()
                 .environment(preferences)
+                .environment(modelManager)
         }
         .menuBarExtraStyle(.menu)
     }

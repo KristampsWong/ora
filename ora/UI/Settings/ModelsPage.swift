@@ -32,16 +32,16 @@ private enum ModelFilter: String, CaseIterable, Identifiable {
 
 struct ModelsPage: View {
     @Environment(Preferences.self) private var preferences
+    @Environment(ModelManager.self) private var modelManager
     @State private var selectedFilter: ModelFilter = .local
     @State private var hoveringCardId: String?
     @State private var removeConfirmId: String?
-    @State private var models: [ModelEntry] = ModelManager.mockModels
 
     private var filteredModels: [ModelEntry] {
         switch selectedFilter {
-        case .all: models
-        case .local: models.filter(\.isLocal)
-        case .api: models.filter(\.isOnline)
+        case .all: modelManager.catalog
+        case .local: modelManager.catalog.filter(\.isLocal)
+        case .api: modelManager.catalog.filter(\.isOnline)
         }
     }
 
@@ -71,15 +71,13 @@ struct ModelsPage: View {
                 VStack(alignment: .leading, spacing: 18) {
                     if !localModels.isEmpty {
                         modelGroup(title: "Local Models", entries: localModels) { model in
-                            if let index = models.firstIndex(where: { $0.id == model.id }) {
-                                LocalModelCard(
-                                    model: $models[index],
-                                    selectedModelId: $preferences.selectedModelId,
-                                    hoveringCardId: $hoveringCardId,
-                                    removeConfirmId: $removeConfirmId,
-                                    onRemoved: { handleRemoved(model.id) }
-                                )
-                            }
+                            LocalModelCard(
+                                model: model,
+                                selectedModelId: $preferences.selectedModelId,
+                                hoveringCardId: $hoveringCardId,
+                                removeConfirmId: $removeConfirmId,
+                                onRemoved: { handleRemoved(model.id) }
+                            )
                         }
                     }
                     if !apiModels.isEmpty {
@@ -152,7 +150,7 @@ struct ModelsPage: View {
     /// to know when to drop a stale selection and pick a fallback.
     private func handleRemoved(_ id: String) {
         guard preferences.selectedModelId == id else { return }
-        preferences.selectedModelId = models.first(where: {
+        preferences.selectedModelId = modelManager.catalog.first(where: {
             if case .downloaded = $0.status { return $0.isLocal && $0.id != id }
             return false
         })?.id
@@ -162,5 +160,7 @@ struct ModelsPage: View {
 
 #Preview {
     ModelsPage()
+        .environment(Preferences.shared)
+        .environment(ModelManager.shared)
         .frame(width: 540, height: 600)
 }
