@@ -31,8 +31,8 @@ private enum ModelFilter: String, CaseIterable, Identifiable {
 // MARK: - Main View
 
 struct ModelsPage: View {
+    @Environment(Preferences.self) private var preferences
     @State private var selectedFilter: ModelFilter = .local
-    @State private var selectedModelId: String? = "parakeet-v3"
     @State private var hoveringCardId: String?
     @State private var removeConfirmId: String?
     @State private var models: [ModelEntry] = ModelManager.mockModels
@@ -54,7 +54,8 @@ struct ModelsPage: View {
     }
 
     var body: some View {
-        ScrollView(.vertical) {
+        @Bindable var preferences = preferences
+        return ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 20) {
                 // Filter chips
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -73,7 +74,7 @@ struct ModelsPage: View {
                             if let index = models.firstIndex(where: { $0.id == model.id }) {
                                 LocalModelCard(
                                     model: $models[index],
-                                    selectedModelId: $selectedModelId,
+                                    selectedModelId: $preferences.selectedModelId,
                                     hoveringCardId: $hoveringCardId,
                                     removeConfirmId: $removeConfirmId,
                                     onRemoved: { handleRemoved(model.id) }
@@ -85,7 +86,7 @@ struct ModelsPage: View {
                         modelGroup(title: "API Models", entries: apiModels) { model in
                             APIModelCard(
                                 model: model,
-                                selectedModelId: $selectedModelId
+                                selectedModelId: $preferences.selectedModelId
                             )
                         }
                     }
@@ -150,8 +151,8 @@ struct ModelsPage: View {
     /// Card-local handlers update model status themselves; the page only needs
     /// to know when to drop a stale selection and pick a fallback.
     private func handleRemoved(_ id: String) {
-        guard selectedModelId == id else { return }
-        selectedModelId = models.first(where: {
+        guard preferences.selectedModelId == id else { return }
+        preferences.selectedModelId = models.first(where: {
             if case .downloaded = $0.status { return $0.isLocal && $0.id != id }
             return false
         })?.id

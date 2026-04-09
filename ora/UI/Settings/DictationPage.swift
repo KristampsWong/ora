@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct DictationPage: View {
+    @Environment(Preferences.self) private var preferences
     @State private var activationKey: String = "Right ⌥"
     @State private var inputMode: InputMode = .pushToTalk
     @State private var testInput: String = ""
@@ -44,7 +45,12 @@ struct DictationPage: View {
     }
 
     var body: some View {
-        Form {
+        @Bindable var preferences = preferences
+        return Form {
+            Section("Output") {
+                Toggle("Paste transcript automatically", isOn: $preferences.autoPaste)
+            }
+
             Section("Trigger") {
                 Picker("Shortcut", selection: $activationKey) {
                     ForEach(activationKeys, id: \.self) { key in
