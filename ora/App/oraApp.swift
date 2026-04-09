@@ -52,27 +52,21 @@ struct oraApp: App {
 /// it in the first place, so there's no flash to hide. This delegate then
 /// reads the user's `Show in Dock` preference and promotes the activation
 /// policy to `.regular` if they've opted in.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    /// Owned here because the registration lifetime should match the
-    /// process lifetime — the hotkey needs to survive window open/close
-    /// cycles and settings sheet presentations. Retained strongly;
-    /// deinit of `HotkeyService` tears down the Carbon registration.
-    private let hotkeyService = HotkeyService()
+    /// The dictation pipeline. Created at launch; owns hotkey, recorder,
+    /// transcriber, paster, and the overlay controller. The coordinator's
+    /// lifetime is the process's lifetime — Carbon hotkey registration
+    /// and the FluidAudio model load are both kept alive across window
+    /// open/close cycles.
+    private var coordinator: DictationCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppearanceController.apply(Preferences.shared)
 
-        // M4: register the default hotkey and log press/release so we
-        // can verify the global subscription works from other apps.
-        // Wiring to the dictation pipeline lands in M6; for now this is
-        // a standalone heartbeat.
-        hotkeyService.onPress = {
-            print("[Hotkey] press")
-        }
-        hotkeyService.onRelease = {
-            print("[Hotkey] release")
-        }
-        hotkeyService.register(.optionSpace)
+        let coordinator = DictationCoordinator()
+        coordinator.start()
+        self.coordinator = coordinator
     }
 
     /// Don't quit when the last window closes — we live in the menu bar,
