@@ -26,10 +26,6 @@ final class ModelManager {
         self.catalog = Self.initialCatalog(downloader: downloader)
     }
 
-    /// Backwards-compat shim so existing call sites keep building until
-    /// Task 3 wires the environment-based reads. Deleted in Task 5.
-    static var mockModels: [ModelEntry] { shared.catalog }
-
     // MARK: - Catalog seeding
 
     private static func initialCatalog(downloader: FluidAudioDownloader) -> [ModelEntry] {
