@@ -21,6 +21,18 @@
 //  construction: the audio thread appends during `[start, stop)`, the
 //  main actor reads after `stop`.
 //
+//  `onLevel` follows a different pattern: it's a normal main-actor
+//  stored property, **not** `nonisolated(unsafe)`. The audio thread
+//  never reads `self.onLevel`. Instead, `start()` snapshots the
+//  closure into a local on the main actor and threads it through
+//  `handleTap`'s parameter list, so the audio thread only ever
+//  invokes a closure value that was passed to it. Invocation hops
+//  back to the main actor via `DispatchQueue.main.async` (GCD's
+//  pre-concurrency bridge accepts non-Sendable closure captures
+//  where `Task { @MainActor }` does not — see the design doc's
+//  § Audio level meter for the full rationale and rejected
+//  alternatives).
+//
 //  ## Format negotiation
 //
 //  AVAudioEngine's input node reports the hardware format (typically
@@ -78,6 +90,14 @@ final class Recorder {
     private nonisolated(unsafe) var accumulated: [Float] = []
     private var isRunning = false
 
+    /// Called on the main actor with a 0...1 normalized RMS level for
+    /// every converted tap buffer while recording. Set before `start()`.
+    /// Captured by value at start() time, so mutating after start() has
+    /// no effect on the in-flight recording — set it again before the
+    /// next start() if you need to swap. See thread-model note for why
+    /// this is a normal main-actor property and not nonisolated(unsafe).
+    var onLevel: ((Float) -> Void)?
+
     init() {
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -118,12 +138,19 @@ final class Recorder {
             throw Failure.converterUnavailable
         }
 
+        // Snapshot onLevel on the main actor *before* installing the
+        // tap. The tap closure captures `levelCallback` (a local), not
+        // `self.onLevel`, so the audio thread never reads a main-actor
+        // property — it only invokes a closure value that was passed
+        // to it. See thread-model note in the file header.
+        let levelCallback = self.onLevel
+
         // 4096 frames ≈ 85 ms at 48 kHz — small enough that a tap-to-
         // stop feels instant, large enough to avoid excessive callback
         // churn on the audio thread.
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
-            self.handleTap(buffer: buffer, converter: converter)
+            self.handleTap(buffer: buffer, converter: converter, levelCallback: levelCallback)
         }
 
         engine.prepare()
@@ -158,12 +185,15 @@ final class Recorder {
     // MARK: - Tap handling
 
     /// Runs on the real-time audio thread. Converts one input buffer
-    /// into the target format and appends its samples to the
-    /// accumulator. Keep this path lean — no logging, no allocations
-    /// beyond the converter's own scratch buffer.
+    /// into the target format, appends its samples to the accumulator,
+    /// and (if a `levelCallback` was snapshotted at start() time)
+    /// dispatches a normalized RMS level to the main actor. Keep this
+    /// path lean — no logging, no allocations beyond the converter's
+    /// own scratch buffer and the GCD enqueue.
     private nonisolated func handleTap(
         buffer: AVAudioPCMBuffer,
-        converter: AVAudioConverter
+        converter: AVAudioConverter,
+        levelCallback: ((Float) -> Void)?
     ) {
         // Allocate an output buffer sized to what the converter needs
         // for this input chunk. `capacity` is the worst-case frame
@@ -204,6 +234,32 @@ final class Recorder {
         // read by the main actor after the tap has been removed, so
         // this append is safe without locking. See thread-model note.
         accumulated.append(contentsOf: UnsafeBufferPointer(start: channel, count: frameCount))
+
+        // Audio level dispatch. levelCallback was snapshotted on the
+        // main actor at start() time, so we never touch self.onLevel
+        // here. DispatchQueue.main.async (not Task @MainActor) is the
+        // only path that compiles cleanly — Task's @Sendable check
+        // rejects capturing the non-Sendable closure value. See
+        // design doc § Audio level meter for full reasoning.
+        if let levelCallback {
+            let rms = Self.computeRMS(channel, count: frameCount)
+            let normalized = min(1.0, rms * 8.0)  // 8x gain so quiet speech reaches ~0.6
+            DispatchQueue.main.async {
+                levelCallback(normalized)
+            }
+        }
+    }
+
+    /// Plain RMS over a Float32 sample buffer. Returns 0 on an empty
+    /// buffer (avoids the NaN that would otherwise come from 0/0 and
+    /// blow up the SwiftUI waveform binding).
+    private nonisolated static func computeRMS(_ samples: UnsafePointer<Float>, count: Int) -> Float {
+        guard count > 0 else { return 0 }
+        var sumSquares: Float = 0
+        for i in 0..<count {
+            sumSquares += samples[i] * samples[i]
+        }
+        return (sumSquares / Float(count)).squareRoot()
     }
 
     // MARK: - Buffer assembly
@@ -225,33 +281,3 @@ final class Recorder {
     }
 }
 
-// MARK: - WAV export (dev harness only)
-
-extension Recorder {
-    /// Writes a 16 kHz mono Float32 PCM buffer out as a WAV file via
-    /// AVAudioFile. Used by the "Test Record 3s" dev menu item to let
-    /// us verify captured audio in Finder / QuickTime before wiring
-    /// STT. Safe to delete once the dev harness is removed in M6.
-    static func writeWav(buffer: AVAudioPCMBuffer, to url: URL) throws {
-        // AVAudioFile writes with the format reported by `processingFormat`,
-        // so give it the same 16 kHz mono Float32 settings the buffer is
-        // already in. WAV containers handle Float32 just fine — no need
-        // to convert to Int16 first.
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: buffer.format.sampleRate,
-            AVNumberOfChannelsKey: buffer.format.channelCount,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false,
-        ]
-        let file = try AVAudioFile(
-            forWriting: url,
-            settings: settings,
-            commonFormat: .pcmFormatFloat32,
-            interleaved: false
-        )
-        try file.write(from: buffer)
-    }
-}
