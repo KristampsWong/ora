@@ -8,10 +8,11 @@
 import SwiftUI
 
 struct LocalModelCard: View {
-    @Binding var model: ModelEntry
+    let model: ModelEntry
     @Binding var selectedModelId: String?
     @Binding var hoveringCardId: String?
     @Binding var removeConfirmId: String?
+    @Environment(ModelManager.self) private var modelManager
 
     /// Notifies the parent that this model was just removed, so it can clear
     /// `selectedModelId` if it was pointing here. Card-local state is updated
@@ -194,77 +195,23 @@ struct LocalModelCard: View {
         }
     }
 
-    // MARK: - Actions (UI-only mock)
+    // MARK: - Actions
 
     private func handleDownload() {
-        startDownloading()
+        modelManager.download(model.id)
     }
 
     private func handlePause() {
-        if case .downloading(let p) = model.status {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                model.status = .paused(progress: p)
-            }
-        }
+        modelManager.cancel(model.id)
     }
 
     private func handleResume() {
-        startDownloading()
+        modelManager.download(model.id)
     }
 
     private func handleRemove() {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            model.status = .notDownloaded
-        }
+        try? modelManager.remove(model.id)
         onRemoved()
-    }
-
-    /// Simulated downloader: ticks progress every 100ms until 1.0,
-    /// then briefly enters .extracting before settling to .downloaded.
-    /// Exits early if the status leaves .downloading (e.g., user paused).
-    private func startDownloading() {
-        let startProgress: Double
-        switch model.status {
-        case .paused(let p): startProgress = p
-        case .downloading(let p): startProgress = p
-        default: startProgress = 0.0
-        }
-
-        withAnimation(.easeInOut(duration: 0.2)) {
-            model.status = .downloading(progress: startProgress)
-        }
-
-        let id = model.id
-        Task { @MainActor in
-            var progress = startProgress
-            let increment = 0.025
-
-            while progress < 1.0 {
-                try? await Task.sleep(for: .milliseconds(100))
-
-                guard model.id == id, case .downloading = model.status else {
-                    return // paused, removed, or model swapped out
-                }
-
-                progress = min(1.0, progress + increment)
-                withAnimation(.linear(duration: 0.1)) {
-                    model.status = .downloading(progress: progress)
-                }
-            }
-
-            // Brief extracting state
-            guard model.id == id, case .downloading = model.status else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                model.status = .extracting
-            }
-            try? await Task.sleep(for: .milliseconds(600))
-
-            // Settle to downloaded
-            guard model.id == id, case .extracting = model.status else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                model.status = .downloaded
-            }
-        }
     }
 }
 
