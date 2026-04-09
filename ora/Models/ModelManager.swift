@@ -17,15 +17,17 @@ final class ModelManager {
 
     private(set) var catalog: [ModelEntry]
 
-    private let downloader = FluidAudioDownloader()
+    private let downloader: FluidAudioDownloader
     private var tasks: [String: Task<Void, Never>] = [:]
 
     init() {
-        self.catalog = Self.initialCatalog(downloader: FluidAudioDownloader())
+        let downloader = FluidAudioDownloader()
+        self.downloader = downloader
+        self.catalog = Self.initialCatalog(downloader: downloader)
     }
 
     /// Backwards-compat shim so existing call sites keep building until
-    /// Task 3 wires the environment-based reads. Will be deleted in Task 3.
+    /// Task 3 wires the environment-based reads. Deleted in Task 5.
     static var mockModels: [ModelEntry] { shared.catalog }
 
     // MARK: - Catalog seeding
@@ -106,7 +108,13 @@ extension ModelManager {
             guard let self else { return }
             do {
                 try await self.downloader.download(id) { [weak self] status in
-                    self?.update(id: id, status: status)
+                    // Ignore late progress callbacks that arrive after the
+                    // Task has been cancelled — otherwise they could overwrite
+                    // the .paused state written by the catch handler below
+                    // and leave the card stuck in .downloading with no Task
+                    // driving it.
+                    guard let self, !Task.isCancelled else { return }
+                    self.update(id: id, status: status)
                 }
                 self.update(id: id, status: .downloaded)
             } catch is CancellationError {
