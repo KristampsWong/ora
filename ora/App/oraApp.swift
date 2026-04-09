@@ -53,8 +53,26 @@ struct oraApp: App {
 /// reads the user's `Show in Dock` preference and promotes the activation
 /// policy to `.regular` if they've opted in.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Owned here because the registration lifetime should match the
+    /// process lifetime — the hotkey needs to survive window open/close
+    /// cycles and settings sheet presentations. Retained strongly;
+    /// deinit of `HotkeyService` tears down the Carbon registration.
+    private let hotkeyService = HotkeyService()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppearanceController.apply(Preferences.shared)
+
+        // M4: register the default hotkey and log press/release so we
+        // can verify the global subscription works from other apps.
+        // Wiring to the dictation pipeline lands in M6; for now this is
+        // a standalone heartbeat.
+        hotkeyService.onPress = {
+            print("[Hotkey] press")
+        }
+        hotkeyService.onRelease = {
+            print("[Hotkey] release")
+        }
+        hotkeyService.register(.optionSpace)
     }
 
     /// Don't quit when the last window closes — we live in the menu bar,
