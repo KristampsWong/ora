@@ -10,10 +10,8 @@
 import SwiftUI
 
 struct GeneralPage: View {
+    @Environment(Preferences.self) private var preferences
     @State private var appearance: String = "System"
-    @State private var showInDock: Bool = false
-    @State private var showInStatusBar: Bool = false
-    @State private var launchAtLogin: Bool = false
     @State private var notificationSound: String = "Pop"
     @State private var notificationSoundEnabled: Bool = true
     @State private var localOnlyMode: Bool = false
@@ -21,7 +19,12 @@ struct GeneralPage: View {
     private let notificationSounds = ["Pop", "Tink", "Glass", "Hero"]
 
     var body: some View {
-        Form {
+        @Bindable var preferences = preferences
+        // Safety rail: don't let the user hide both the dock icon and the
+        // status bar item at the same time, or the app becomes unreachable.
+        let dockToggleLocked = preferences.showInDock && !preferences.showInStatusBar
+        let statusToggleLocked = preferences.showInStatusBar && !preferences.showInDock
+        return Form {
             Section("Interface") {
                 Picker("Appearance", selection: $appearance) {
                     Text("System").tag("System")
@@ -31,12 +34,13 @@ struct GeneralPage: View {
             }
 
             Section("Behavior") {
-                Toggle("Show in Dock", isOn: $showInDock)
+                Toggle("Show in Dock", isOn: $preferences.showInDock)
+                    .disabled(dockToggleLocked)
 
-                Toggle("Show in status bar", isOn: $showInStatusBar)
-                    .disabled(true)
+                Toggle("Show in status bar", isOn: $preferences.showInStatusBar)
+                    .disabled(statusToggleLocked)
 
-                Toggle("Launch at login", isOn: $launchAtLogin)
+                Toggle("Launch at login", isOn: $preferences.launchAtLogin)
             }
 
             Section("Notifications") {
