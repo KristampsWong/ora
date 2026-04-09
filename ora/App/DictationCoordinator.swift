@@ -78,8 +78,9 @@ final class DictationCoordinator {
     // MARK: - In-flight task bookkeeping
 
     /// The transcribe + paste pipeline launched on hotkey release.
-    /// Cancelled on coordinator deinit (defensive — coordinator is
-    /// process-lifetime in practice).
+    /// Cancelled when a new pipeline starts; the coordinator is
+    /// process-lifetime so we don't rely on deinit cleanup (and
+    /// can't — see the comment block where the deinit used to be).
     private var transcribeTask: Task<Void, Never>?
 
     /// The 2s auto-dismiss timer for error states. Cancelled on every
