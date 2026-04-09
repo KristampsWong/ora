@@ -101,17 +101,27 @@ extension FluidAudioDownloader {
         switch progress.phase {
         case .listing:
             return .downloading(progress: 0)
-        case .downloading:
-            // FluidAudio splits its overall fractionCompleted range:
-            //   0.0 – 0.5  → network download phase
-            //   0.5 – 1.0  → CoreML compile phase
-            // (See FluidAudio/Sources/FluidAudio/DownloadUtils.swift:414-418
-            // and :460-461 — the constant 0.5 caps the download phase.)
+        case .downloading(let completedFiles, let totalFiles):
+            // We deliberately IGNORE progress.fractionCompleted here.
             //
-            // We render the network download as a 0–100 % progress ring and
-            // the compile phase as a separate spinner (.extracting), so we
-            // rescale 0..0.5 → 0..1 here. The min() is a defensive cap.
-            return .downloading(progress: min(1.0, progress.fractionCompleted * 2))
+            // FluidAudio sums file sizes at DownloadUtils.swift:366 to
+            // compute totalBytes, but for LFS-tracked models (all Parakeet
+            // weights live in .mlmodelc/weights/*.bin and are LFS pointers)
+            // HuggingFace's tree API returns the pointer-file size (~130 B)
+            // instead of the resolved LFS size. totalBytes ends up a few
+            // KB instead of ~496 MB, so the fraction pins to the 0.5 cap
+            // at DownloadUtils.swift:418 after the first LFS file starts
+            // and the ring jumps to 100 % while the real download is still
+            // running silently underneath.
+            //
+            // The file count is reliable — FluidAudio tracks it directly
+            // from the filesToDownload list, no LFS weirdness involved.
+            // Ring advances in discrete steps (one per file completion),
+            // which is honest about what's happening.
+            let fraction = totalFiles > 0
+                ? Double(completedFiles) / Double(totalFiles)
+                : 0
+            return .downloading(progress: fraction)
         case .compiling:
             return .extracting
         }
