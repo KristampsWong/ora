@@ -23,6 +23,12 @@ struct LocalModelCard: View {
     private var isSelected: Bool { selectedModelId == model.id }
 
     var body: some View {
+        // Three top-level columns: [eye icon] [content] [download control].
+        // The content VStack is greedy (`frame(maxWidth: .infinity)`) so the
+        // download control is pushed to the trailing edge. Splitting the
+        // download control into its own column — instead of nesting it in
+        // the content header — means its caption text (e.g. "2m30s") can
+        // grow vertically without pushing the description or chips down.
         HStack(alignment: .top, spacing: 10) {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -34,14 +40,8 @@ struct LocalModelCard: View {
                 )
 
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(model.name)
-                        .font(.system(size: 13, weight: .semibold))
-
-                    Spacer()
-
-                    downloadControl
-                }
+                Text(model.name)
+                    .font(.system(size: 13, weight: .semibold))
 
                 Text(model.description)
                     .font(.system(size: 11))
@@ -55,6 +55,9 @@ struct LocalModelCard: View {
                     attributeChip("globe", model.language)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            downloadControl
         }
         .padding(12)
         .background(ModelCardChrome.background(isSelected: isSelected))
@@ -91,72 +94,106 @@ struct LocalModelCard: View {
     private var downloadControl: some View {
         let size: CGFloat = 16
 
-        switch model.status {
-        case .downloaded:
-            if hoveringCardId == model.id {
-                Button { removeConfirmId = model.id } label: {
-                    Image(systemName: "minus.circle")
+        // VStack so the ETA caption can sit directly below the icon. The
+        // outer HStack containing this view aligns its children to `.top`,
+        // so the icon stays in line with the model name and the caption
+        // simply hangs off the bottom of the row — no overlap with the
+        // description text below.
+        VStack(alignment: .trailing, spacing: 2) {
+            switch model.status {
+            case .downloaded:
+                if hoveringCardId == model.id {
+                    Button { removeConfirmId = model.id } label: {
+                        Image(systemName: "minus.circle")
+                            .font(.system(size: size))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: size, height: size)
+                }
+
+            case .notDownloaded:
+                Button { handleDownload() } label: {
+                    Image(systemName: "arrow.down.circle")
                         .font(.system(size: size))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .frame(width: size, height: size)
+
+            case .downloading(let eta):
+                Button { handlePause() } label: {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.system(size: size))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .frame(width: size, height: size)
+                // Render the caption only once we have a real ETA. Showing
+                // "Downloading" / "…" while waiting for the first sample
+                // would force the column wide and then snap narrower, which
+                // looks worse than just leaving the slot empty for ~2 s.
+                if let caption = Self.downloadingCaption(eta: eta) {
+                    captionLabel(text: caption)
+                }
+
+            case .paused:
+                Button { handleResume() } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: size))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .frame(width: size, height: size)
+                captionLabel(text: "Paused")
+
+            case .extracting:
+                SpinningCircle(size: size)
+                    .frame(width: size, height: size)
+
+            case .error(let message):
+                Button { handleDownload() } label: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: size))
+                        .foregroundStyle(.red)
+                        .help(message)
                 }
                 .buttonStyle(.plain)
                 .frame(width: size, height: size)
             }
-
-        case .notDownloaded:
-            Button { handleDownload() } label: {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: size))
-                    .foregroundStyle(.blue)
-            }
-            .buttonStyle(.plain)
-            .frame(width: size, height: size)
-
-        case .downloading(let progress):
-            Button { handlePause() } label: {
-                circularProgress(progress: progress, icon: "pause.fill", size: size)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-        case .paused(let progress):
-            Button { handleResume() } label: {
-                circularProgress(progress: progress, icon: "arrow.down", size: size)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-        case .extracting:
-            SpinningCircle(size: size)
-                .frame(width: size, height: size)
-
-        case .error(let message):
-            Button { handleDownload() } label: {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: size))
-                    .foregroundStyle(.red)
-                    .help(message)
-            }
-            .buttonStyle(.plain)
-            .frame(width: size, height: size)
         }
     }
 
-    private func circularProgress(progress: Double, icon: String, size: CGFloat) -> some View {
-        ZStack {
-            Circle()
-                .stroke(Color.secondary.opacity(0.2), lineWidth: 1.5)
+    private func captionLabel(text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.secondary)
+            .monospacedDigit()
+    }
 
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color.blue, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-
-            Image(systemName: icon)
-                .font(.system(size: size * 0.35, weight: .bold))
-                .foregroundStyle(.blue)
+    /// Formats an ETA into the compact form the user picked. Returns nil
+    /// when there's no estimate yet (the caller skips rendering the
+    /// caption entirely in that case — see the `.downloading` branch in
+    /// `downloadControl` for why).
+    ///
+    ///   - nil            — no estimate yet, or speed has stalled
+    ///   - "<3s"          — almost done
+    ///   - "30s"          — under a minute
+    ///   - "2m30s" / "5m" — under an hour, seconds dropped when zero
+    ///   - "1h2m" / "1h"  — pathological long downloads
+    private static func downloadingCaption(eta: TimeInterval?) -> String? {
+        guard let eta else { return nil }
+        let total = Int(eta.rounded())
+        if total < 3 { return "<3s" }
+        if total < 60 { return "\(total)s" }
+        let minutes = total / 60
+        let seconds = total % 60
+        if minutes < 60 {
+            return seconds == 0 ? "\(minutes)m" : "\(minutes)m\(seconds)s"
         }
-        .frame(width: size, height: size)
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return mins == 0 ? "\(hours)h" : "\(hours)h\(mins)m"
     }
 
     // MARK: - Chips

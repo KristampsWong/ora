@@ -6,137 +6,38 @@
 //  project that imports FluidAudio — everything else talks to it through
 //  this Swift-native interface so the SDK stays isolated.
 //
+//  ## Why we report ETA instead of a progress fraction
+//
+//  Earlier revisions tried to surface FluidAudio's `progress.fractionCompleted`
+//  as a circular progress bar. That stream turned out to be unreliable for
+//  display: under the pinned SDK (04747b3) the visible behavior was a quick
+//  climb to ~5–10 % followed by an immediate snap to 100 %, leaving the
+//  spinner running silently for the bulk of the actual download. The likely
+//  root cause is that FluidAudio's internal `totalBytes` undercounts the
+//  LFS-backed encoder weights file (`Encoder.mlmodelc/weights/weight.bin`,
+//  ~445 MB on disk — confirmed via `du`), so `fractionCompleted` reaches its
+//  capped 0.5 maximum well before the encoder finishes streaming.
+//
+//  Rather than chase that upstream bug, we ignore `fractionCompleted` for the
+//  download phase entirely and observe the **filesystem** instead, which is
+//  ground truth. Two locations are summed:
+//
+//    1. The model cache directory (files that FluidAudio has finished and
+//       moved into place).
+//    2. URLSession's in-flight `CFNetworkDownload_*.tmp` files inside the
+//       sandbox tmp/caches dirs (the ~445 MB encoder weight is a single
+//       URLSession request, so without watching the tmp file the cache dir
+//       sits idle for several minutes mid-download).
+//
+//  A 2-second poll feeds samples into a small sliding window; speed is
+//  derived from the oldest/newest pair, ETA from `(total - latest) / speed`.
+//  FluidAudio's progress callback is still observed, but only to detect the
+//  `.compiling` phase transition so we can flip to `.extracting` and stop the
+//  poller.
+//
 
 import Foundation
 import FluidAudio
-
-/// Tracks cumulative byte-weighted progress across the multiple
-/// sequential `DownloadUtils.loadModels` calls FluidAudio runs per
-/// `AsrModelVersion`. For Parakeet v3 (non-fused), `AsrModels.download`
-/// loops over four `DownloadSpec`s — preprocessor, encoder, decoder,
-/// joint — and invokes `loadModels` once per spec
-/// (FluidAudio AsrModels.swift:437-454, pinned revision 04747b3).
-///
-/// In current FluidAudio, `loadModelsOnce` checks the *full* required
-/// model set on disk before invoking `downloadRepo`
-/// (DownloadUtils.swift:191-204). That means the FIRST spec call
-/// downloads every required `.mlmodelc` directory in one pass, and
-/// the remaining three spec calls short-circuit at the local-cache
-/// check and emit only a synthetic `downloading(0,0)` tick at
-/// `fractionCompleted = 0.5` followed by their compile events. So in
-/// practice we observe a single contiguous downloading stream from
-/// 0.0 → 0.5, not four sequential 0→0.5 streams as the spec loop
-/// might suggest.
-///
-/// We still aggregate by spec for two reasons:
-///
-///   1. Defense in depth — if a future FluidAudio revision narrows
-///      `requiredModels` per spec call (so each call genuinely
-///      downloads only its own files), the aggregator already knows
-///      how to fold per-spec progress into a single ring.
-///   2. The synthetic `downloading(0.5, 0, 0)` ticks emitted by
-///      cached spec calls would otherwise be misread as a fresh
-///      downloading event and could regress the bar; routing them
-///      through the aggregator's monotonic update guarantees the
-///      ring never goes backwards.
-///
-/// **Weight table.** Per-spec byte weights, measured 2026-04-08 from
-/// HuggingFace's tree API:
-///
-///   curl -sS "https://huggingface.co/api/models/FluidInference/parakeet-tdt-0.6b-v3-coreml/tree/main/<Spec>.mlmodelc"
-///   curl -sS "https://huggingface.co/api/models/FluidInference/parakeet-tdt-0.6b-v3-coreml/tree/main/<Spec>.mlmodelc/weights"
-///
-/// summing the `size` field of every file in each spec directory:
-///
-///   preprocessor:    ~522 KB    ( 0.11 %)
-///   encoder:         ~446 MB    (92.38 %)    ← dominant
-///   decoder:         ~23.6 MB   ( 4.89 %)
-///   joint:           ~12.7 MB   ( 2.62 %)
-///   total:           ~483 MB
-///
-/// Because today's FluidAudio downloads everything in spec 0, we use
-/// `[1.0, 0, 0, 0]` rather than the per-mlmodelc byte ratios — that
-/// way the ring fills 0 → 100 % across spec 0's downloading stream
-/// and the cached spec 2/3/4 ticks contribute zero. If a future
-/// revision actually splits downloads per spec, swap to the
-/// `bytesPerSpec` ratios in the comment above and the aggregator's
-/// boundary detection will start firing.
-private final class ProgressAggregator {
-    /// Weight per spec for Parakeet v3 non-fused. Index matches the
-    /// order FluidAudio runs them in `AsrModels.swift:437-443`:
-    /// `[preprocessor, encoder, decoder, joint]`.
-    ///
-    /// See the type-level comment for why this is `[1.0, 0, 0, 0]`
-    /// instead of the byte-ratio table `[0.0011, 0.9238, 0.0489, 0.0262]`.
-    private static let weights: [Double] = [1.0, 0.0, 0.0, 0.0]
-
-    /// Threshold for detecting a spec boundary. Progress within a
-    /// single spec is monotonically increasing, so any sample that's
-    /// more than `boundaryDropThreshold` below the previous one is a
-    /// reset to the next spec. 0.05 is comfortably above URLSession
-    /// jitter but well below a real spec reset (~1.0 → 0.0).
-    private static let boundaryDropThreshold: Double = 0.05
-
-    private var currentSpec: Int = 0
-    private var lastSpecFraction: Double = 0
-    private var completedWeight: Double = 0
-    private var monotonicFloor: Double = 0
-    private var warnedAboutSpecOverflow: Bool = false
-
-    /// Current monotonic ring fraction, 0..1. Used by the listing
-    /// branch so a fresh listing event mid-download doesn't snap the
-    /// ring back to 0 %.
-    var currentFraction: Double { monotonicFloor }
-
-    /// Updates the aggregator with a new downloading-phase sample
-    /// (FluidAudio's raw `fractionCompleted` for the current spec,
-    /// 0.0..0.5 since FluidAudio reserves the top half for compile).
-    /// Returns the overall smooth fraction across all specs, 0..1.
-    func update(specFraction rawFraction: Double) -> Double {
-        // FluidAudio clamps each spec's download phase to 0.0..0.5.
-        // Rescale to 0..1 within the current spec so our aggregator
-        // sees clean per-spec progress.
-        let rescaled = min(1.0, rawFraction * 2)
-
-        // Detect a spec boundary: a significant drop from the last
-        // sample means FluidAudio finished one spec and started the
-        // next one. (Under current FluidAudio behavior this never
-        // fires — see the type-level comment — but we keep the logic
-        // so the aggregator stays correct if FluidAudio changes.)
-        if rescaled + Self.boundaryDropThreshold < lastSpecFraction {
-            completedWeight += weight(for: currentSpec)
-            currentSpec += 1
-            if currentSpec >= Self.weights.count && !warnedAboutSpecOverflow {
-                // Weight table is stale relative to the pinned SDK —
-                // FluidAudio is running more specs than we have weights
-                // for. The aggregator will pin at the monotonic floor
-                // until the real download finishes instead of advancing.
-                print(
-                    "warning: FluidAudio.ProgressAggregator saw more specs than expected weights — "
-                    + "update the table in FluidAudioDownloader.swift after checking AsrModels.swift specs definition"
-                )
-                warnedAboutSpecOverflow = true
-            }
-        }
-        lastSpecFraction = rescaled
-
-        let currentContribution = weight(for: currentSpec) * rescaled
-        let candidate = min(1.0, completedWeight + currentContribution)
-        // The bar never moves backwards. This protects against the
-        // synthetic downloading(0.5, 0, 0) ticks that cached spec
-        // calls emit at DownloadUtils.swift:202-203 — those ticks
-        // map to rescaled=1.0 and would be fine, but if anything
-        // else ever produces a momentary low value (URLSession
-        // retry, partial range request, etc.) the floor catches it.
-        monotonicFloor = max(monotonicFloor, candidate)
-        return monotonicFloor
-    }
-
-    private func weight(for index: Int) -> Double {
-        guard index < Self.weights.count else { return 0 }
-        return Self.weights[index]
-    }
-}
 
 struct FluidAudioDownloader {
     enum Failure: Error, LocalizedError {
@@ -162,6 +63,21 @@ struct FluidAudioDownloader {
         "parakeet-v3": .v3
     ]
 
+    /// Expected on-disk size for each catalog id, used as the denominator
+    /// when computing ETA. Measured 2026-04-08 from a completed install:
+    ///
+    ///   parakeet-tdt-0.6b-v3:    461 MB on disk
+    ///     Encoder.mlmodelc/weights/weight.bin alone:  ~445 MB (96 %)
+    ///     Decoder + JointDecision + Preprocessor:     ~16 MB
+    ///
+    /// If the SDK pin starts pulling a different model set, refresh this
+    /// table by running `du -sb` against `AsrModels.defaultCacheDirectory`
+    /// after a clean download. Drift up to ~5 % is harmless — the formatter
+    /// hides "≈ 0 ETA" as `<3s` and `estimateEta` clamps remaining ≥ 0.
+    private static let totalBytesById: [String: Int64] = [
+        "parakeet-v3": 461 * 1024 * 1024
+    ]
+
     private func version(for id: String) throws -> AsrModelVersion {
         guard let v = Self.versionsById[id] else {
             throw Failure.unsupportedModel(id)
@@ -185,34 +101,74 @@ extension FluidAudioDownloader {
 
 extension FluidAudioDownloader {
     /// Downloads the model identified by `id`, calling `onProgress` on the
-    /// main actor each time FluidAudio reports a phase or fraction change.
-    /// Throws `Failure.unsupportedModel` immediately for unknown ids,
-    /// `CancellationError` if the surrounding Task is cancelled, and
-    /// `Failure.downloadIncomplete` if files are missing after the call
-    /// returns.
+    /// main actor with `.downloading(eta:)` updates as the disk poller
+    /// accumulates samples, and `.extracting` once FluidAudio enters its
+    /// CoreML compile phase. Throws `Failure.unsupportedModel` immediately
+    /// for unknown ids, `CancellationError` if the surrounding Task is
+    /// cancelled, and `Failure.downloadIncomplete` if files are missing
+    /// after the call returns.
     func download(
         _ id: String,
         onProgress: @escaping @MainActor (ModelEntry.Status) -> Void
     ) async throws {
         let v = try version(for: id)
-        // Fresh aggregator per download — `ProgressAggregator` is a
-        // class so the closure below captures it by reference and
-        // mutations inside `update(specFraction:)` persist across
-        // callbacks.
-        let aggregator = ProgressAggregator()
+        let cacheDir = AsrModels.defaultCacheDirectory(for: v)
+        let totalBytes = Self.totalBytesById[id] ?? 0
+
+        // Disk poller. Runs in parallel with `AsrModels.download` and is the
+        // sole source of `.downloading(eta:)` updates. Cancelled either when
+        // FluidAudio enters the compile phase (see progressHandler below) or
+        // when the surrounding function exits via the `defer` below.
+        let pollTask = Task<Void, Never> { [totalBytes, cacheDir] in
+            // Sliding window of (timestamp, bytes) samples. ~6 samples × 2 s
+            // = 12 s of history, which dampens momentary stalls (DNS, TLS,
+            // server-side throttling) without making the ETA feel laggy.
+            //
+            // Seed sample[0] = (now, current on-disk bytes) so the second
+            // poll iteration (t ≈ 2 s) already has two samples and can emit
+            // a real ETA, instead of waiting until t ≈ 4 s. For a fresh
+            // download `bytesDownloaded` is 0; for a resumed download it's
+            // the bytes already on disk, which is exactly the right anchor
+            // for "speed since the user pressed resume".
+            var samples: [(t: Date, bytes: Int64)] = [
+                (t: Date(), bytes: Self.bytesDownloaded(cacheDir: cacheDir))
+            ]
+            // Emit one nil-ETA tick immediately so the UI flips to the
+            // .downloading caption ("…") right away, before the first
+            // 2-second poll lands.
+            await MainActor.run { onProgress(.downloading(eta: nil)) }
+
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                if Task.isCancelled { break }
+
+                let bytes = Self.bytesDownloaded(cacheDir: cacheDir)
+                samples.append((t: Date(), bytes: bytes))
+                if samples.count > 6 { samples.removeFirst(samples.count - 6) }
+
+                let eta = Self.estimateEta(samples: samples, totalBytes: totalBytes)
+                await MainActor.run {
+                    // Re-check cancellation inside MainActor.run so a late
+                    // landing here can't overwrite a `.extracting` that the
+                    // progressHandler dispatched in the meantime.
+                    guard !Task.isCancelled else { return }
+                    onProgress(.downloading(eta: eta))
+                }
+            }
+        }
+        defer { pollTask.cancel() }
 
         do {
             _ = try await AsrModels.download(version: v, progressHandler: { progress in
-                let status = Self.status(from: progress, aggregator: aggregator)
-                // Hop to the main actor via DispatchQueue to preserve FIFO
-                // order. An unstructured Task { @MainActor in ... } could in
-                // principle reorder closely-spaced progress events, which
-                // would be visible as a stuck final state (e.g., extracting
-                // landing before the last downloading tick).
+                // Phase signal only — `progress.fractionCompleted` is not
+                // trustworthy for display under the pinned SDK (see file
+                // header). The disk poller is the sole source of byte
+                // progress; here we just need to know when downloading
+                // finishes so we can flip to .extracting and stop polling.
+                guard case .compiling = progress.phase else { return }
+                pollTask.cancel()
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        onProgress(status)
-                    }
+                    MainActor.assumeIsolated { onProgress(.extracting) }
                 }
             })
         } catch is CancellationError {
@@ -224,33 +180,104 @@ extension FluidAudioDownloader {
             throw Failure.underlying(error)
         }
 
-        let dir = AsrModels.defaultCacheDirectory(for: v)
-        guard AsrModels.modelsExist(at: dir, version: v) else {
+        guard AsrModels.modelsExist(at: cacheDir, version: v) else {
             throw Failure.downloadIncomplete
         }
     }
 
-    private static func status(
-        from progress: DownloadUtils.DownloadProgress,
-        aggregator: ProgressAggregator
-    ) -> ModelEntry.Status {
-        switch progress.phase {
-        case .listing:
-            // Use the aggregator's current floor instead of resetting
-            // to 0. FluidAudio emits a listing event at the start of
-            // every spec call (DownloadUtils.swift:360), and a hard
-            // reset would snap the ring back to 0 % between specs.
-            return .downloading(progress: aggregator.currentFraction)
-        case .downloading:
-            // NOTE: we ignore progress.phase's (completedFiles, totalFiles)
-            // here. FluidAudio reports them per-spec, not aggregated across
-            // the 4 sequential specs it runs for Parakeet v3, so file
-            // counts aren't useful at the adapter layer. The byte fraction
-            // (after rescale + cross-spec aggregation) is the right signal.
-            let overall = aggregator.update(specFraction: progress.fractionCompleted)
-            return .downloading(progress: overall)
-        case .compiling:
-            return .extracting
+    /// Sum of bytes that count toward the download:
+    ///   1. Files that FluidAudio has finished and moved into `cacheDir`.
+    ///   2. URLSession's in-flight `CFNetworkDownload_*.tmp` files anywhere
+    ///      under the sandbox tmp/caches dirs. The encoder weight file
+    ///      (~445 MB, ~96 % of the total) is downloaded as a single
+    ///      URLSession request, so without (2) the cache dir would sit at
+    ///      a few MB for several minutes mid-download and ETA would stall.
+    private static func bytesDownloaded(cacheDir: URL) -> Int64 {
+        directorySize(at: cacheDir) + inFlightDownloadBytes()
+    }
+
+    /// Recursively sums `totalFileAllocatedSize` for every regular file
+    /// under `url`. Returns 0 if the directory doesn't exist yet (which is
+    /// the normal state at the start of a fresh download).
+    private static func directorySize(at url: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard
+                let values = try? fileURL.resourceValues(
+                    forKeys: [.totalFileAllocatedSizeKey, .isRegularFileKey]
+                ),
+                values.isRegularFile == true
+            else { continue }
+            total += Int64(values.totalFileAllocatedSize ?? 0)
         }
+        return total
+    }
+
+    /// Sums the sizes of any `CFNetworkDownload_*.tmp` files under the
+    /// sandbox's tmp and caches directories. URLSession.download(for:) is
+    /// not documented to use a stable location (Apple says only "a temporary
+    /// file"), but in practice on macOS sandboxed apps the file lives in
+    /// one of these two roots, so we scan both defensively.
+    private static func inFlightDownloadBytes() -> Int64 {
+        var total: Int64 = 0
+        for root in candidateTmpRoots() {
+            total += scanCFNetworkDownloads(in: root)
+        }
+        return total
+    }
+
+    private static func candidateTmpRoots() -> [URL] {
+        var roots: [URL] = [URL(fileURLWithPath: NSTemporaryDirectory())]
+        if let cachesDir = FileManager.default.urls(
+            for: .cachesDirectory, in: .userDomainMask
+        ).first {
+            roots.append(cachesDir)
+        }
+        return roots
+    }
+
+    private static func scanCFNetworkDownloads(in root: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard url.lastPathComponent.hasPrefix("CFNetworkDownload") else { continue }
+            guard
+                let values = try? url.resourceValues(
+                    forKeys: [.fileSizeKey, .isRegularFileKey]
+                ),
+                values.isRegularFile == true
+            else { continue }
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
+    }
+
+    /// Returns the estimated remaining time in seconds, or nil if there
+    /// isn't enough signal yet (fewer than 2 samples, no progress between
+    /// the oldest and newest sample, or unknown total size).
+    private static func estimateEta(
+        samples: [(t: Date, bytes: Int64)],
+        totalBytes: Int64
+    ) -> TimeInterval? {
+        guard samples.count >= 2, totalBytes > 0 else { return nil }
+        let first = samples.first!
+        let last = samples.last!
+        let bytesDelta = Double(last.bytes - first.bytes)
+        let timeDelta = last.t.timeIntervalSince(first.t)
+        guard timeDelta > 0, bytesDelta > 0 else { return nil }
+        let speed = bytesDelta / timeDelta // bytes/sec
+        let remaining = max(0, Double(totalBytes - last.bytes))
+        return remaining / speed
     }
 }

@@ -24,8 +24,11 @@ struct ModelEntry: Identifiable, Equatable {
     enum Status: Equatable {
         case downloaded
         case notDownloaded
-        case downloading(progress: Double)
-        case paused(progress: Double)
+        /// `eta` is `nil` until the downloader has accumulated enough samples
+        /// to estimate a remaining time (typically the first ~4 seconds, or
+        /// any time speed drops to 0).
+        case downloading(eta: TimeInterval?)
+        case paused
         case extracting
         case error(message: String)
     }

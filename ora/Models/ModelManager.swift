@@ -96,9 +96,9 @@ extension ModelManager {
         guard tasks[id] == nil else { return }
         guard let index = catalog.firstIndex(where: { $0.id == id }) else { return }
 
-        // Seed at zero so the UI flips to .downloading immediately even
-        // before FluidAudio sends its first progress event.
-        catalog[index].status = .downloading(progress: 0)
+        // Seed with no ETA so the UI flips to .downloading immediately even
+        // before the disk poller has accumulated enough samples to estimate.
+        catalog[index].status = .downloading(eta: nil)
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -114,8 +114,7 @@ extension ModelManager {
                 }
                 self.update(id: id, status: .downloaded)
             } catch is CancellationError {
-                let lastProgress = self.lastProgress(forId: id)
-                self.update(id: id, status: .paused(progress: lastProgress))
+                self.update(id: id, status: .paused)
             } catch let failure as FluidAudioDownloader.Failure {
                 self.update(id: id, status: .error(message: failure.errorDescription ?? "Download failed."))
             } catch {
@@ -148,13 +147,5 @@ extension ModelManager {
     private func update(id: String, status: ModelEntry.Status) {
         guard let index = catalog.firstIndex(where: { $0.id == id }) else { return }
         catalog[index].status = status
-    }
-
-    private func lastProgress(forId id: String) -> Double {
-        guard let entry = catalog.first(where: { $0.id == id }) else { return 0 }
-        switch entry.status {
-        case .downloading(let p), .paused(let p): return p
-        default: return 0
-        }
     }
 }
