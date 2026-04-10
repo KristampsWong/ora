@@ -6,6 +6,7 @@
 //  UI-only mock — no real permission checks, statuses live in @State.
 //
 
+import AVFoundation
 import SwiftUI
 
 // MARK: - Permission Item Model
@@ -33,9 +34,21 @@ struct PermissionItem: Identifiable {
 // MARK: - GetStartedView
 
 struct GetStartedView: View {
+    var realPermissions: Permissions?
     var onComplete: (() -> Void)?
 
-    @State private var statuses: [PermissionKind: PermissionStatus] = [:]
+    /// Only used when `realPermissions` is nil (previews / tests).
+    @State private var mockStatuses: [PermissionKind: PermissionStatus]
+
+    init(
+        permissions: Permissions? = nil,
+        onComplete: (() -> Void)? = nil,
+        mockStatuses: [PermissionKind: PermissionStatus]? = nil
+    ) {
+        self.realPermissions = permissions
+        self.onComplete = onComplete
+        _mockStatuses = State(initialValue: mockStatuses ?? [:])
+    }
 
     private static let standardAnimation = Animation.easeInOut(duration: 0.25)
 
@@ -65,7 +78,23 @@ struct GetStartedView: View {
     ]
 
     private func status(for kind: PermissionKind) -> PermissionStatus {
-        statuses[kind] ?? .notRequested
+        if let realPermissions {
+            switch kind {
+            case .microphone:
+                if realPermissions.microphoneGranted { return .granted }
+                if realPermissions.microphoneStatus == .denied
+                    || realPermissions.microphoneStatus == .restricted {
+                    return .denied
+                }
+                return .notRequested
+            case .accessibility:
+                // AX has no "denied" state — not trusted is rendered
+                // as .notRequested so the user still sees the
+                // "how to grant it" steps.
+                return realPermissions.accessibilityGranted ? .granted : .notRequested
+            }
+        }
+        return mockStatuses[kind] ?? .notRequested
     }
 
     var allGranted: Bool {
@@ -125,6 +154,8 @@ struct GetStartedView: View {
             .padding(.horizontal, 28)
             .padding(.bottom, 20)
         }
+        .onAppear { realPermissions?.startMonitoring() }
+        .onDisappear { realPermissions?.stopMonitoring() }
     }
 
     // MARK: - Permission Card
@@ -206,9 +237,7 @@ struct GetStartedView: View {
         switch status {
         case .notRequested:
             Button("Grant Access") {
-                withAnimation(Self.standardAnimation) {
-                    statuses[item.kind] = .granted
-                }
+                requestPermission(kind: item.kind)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -220,10 +249,40 @@ struct GetStartedView: View {
 
         case .denied:
             Button("Open Settings") {
-                // TODO: open System Settings when wired to real permissions.
+                openSettings(kind: item.kind)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+        }
+    }
+
+    // MARK: - Permission Actions
+
+    private func requestPermission(kind: PermissionKind) {
+        guard let realPermissions else {
+            // Mock mode for previews: flip to granted so the footer
+            // button flow is still exercisable.
+            withAnimation(Self.standardAnimation) {
+                mockStatuses[kind] = .granted
+            }
+            return
+        }
+
+        switch kind {
+        case .microphone:
+            Task { await realPermissions.requestMicrophone() }
+        case .accessibility:
+            realPermissions.promptAccessibilityIfNeeded()
+        }
+    }
+
+    private func openSettings(kind: PermissionKind) {
+        guard let realPermissions else { return }
+        switch kind {
+        case .microphone:
+            realPermissions.openMicrophoneSettings()
+        case .accessibility:
+            realPermissions.openAccessibilitySettings()
         }
     }
 }
