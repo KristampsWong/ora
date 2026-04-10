@@ -90,10 +90,13 @@ final class DictationCoordinator {
 
     // MARK: - Init
 
+    /// Shared singleton used by AppDelegate and DictationPage.
+    static let shared = DictationCoordinator()
+
     /// Convenience init used at app launch. Constructs every dependency
     /// inside the main-actor body so default-argument evaluation never
     /// crosses an isolation boundary (which trips strict-concurrency).
-    convenience init() {
+    private convenience init() {
         self.init(
             hotkey: HotkeyService(),
             recorder: Recorder(),
@@ -148,7 +151,13 @@ final class DictationCoordinator {
         hotkey.onRelease = { [weak self] in
             self?.handleRelease()
         }
-        hotkey.register(.optionSpace)
+        hotkey.register(preferences.activationKey)
+    }
+
+    /// Re-registers the hotkey with the current preference. Called from
+    /// DictationPage when the user changes the shortcut.
+    func updateHotkey() {
+        hotkey.register(preferences.activationKey)
     }
 
     // MARK: - Hotkey handlers

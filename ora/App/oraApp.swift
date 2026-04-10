@@ -69,19 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// for why the two sources are not unified yet.
     let permissions = Permissions()
 
-    /// The dictation pipeline. Created at launch; owns hotkey, recorder,
-    /// transcriber, paster, and the overlay controller. The coordinator's
-    /// lifetime is the process's lifetime — Carbon hotkey registration
-    /// and the FluidAudio model load are both kept alive across window
-    /// open/close cycles.
-    private var coordinator: DictationCoordinator?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppearanceController.apply(Preferences.shared)
-
-        let coordinator = DictationCoordinator()
-        coordinator.start()
-        self.coordinator = coordinator
+        DictationCoordinator.shared.start()
     }
 
     /// Don't quit when the last window closes — we live in the menu bar,
