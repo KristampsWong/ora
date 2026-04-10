@@ -21,6 +21,7 @@ final class Preferences {
         static let showInDock = "ora.showInDock"
         static let showInStatusBar = "ora.showInStatusBar"
         static let launchAtLogin = "ora.launchAtLogin"
+        static let activationKey = "ora.activationKey"
     }
 
     private let defaults: UserDefaults
@@ -49,6 +50,10 @@ final class Preferences {
         didSet { defaults.set(launchAtLogin, forKey: Key.launchAtLogin) }
     }
 
+    var activationKey: ActivationKey {
+        didSet { defaults.set(activationKey.rawValue, forKey: Key.activationKey) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.selectedModelId = defaults.string(forKey: Key.selectedModelId) ?? "parakeet-v3"
@@ -57,5 +62,11 @@ final class Preferences {
         self.showInDock = (defaults.object(forKey: Key.showInDock) as? Bool) ?? false
         self.showInStatusBar = (defaults.object(forKey: Key.showInStatusBar) as? Bool) ?? true
         self.launchAtLogin = defaults.bool(forKey: Key.launchAtLogin)
+        if let raw = defaults.string(forKey: Key.activationKey),
+           let key = ActivationKey(rawValue: raw) {
+            self.activationKey = key
+        } else {
+            self.activationKey = .default
+        }
     }
 }
