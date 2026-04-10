@@ -47,4 +47,59 @@ final class Permissions {
         self.microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         self.accessibilityStatus = AXIsProcessTrusted()
     }
+
+    // MARK: - Microphone
+
+    /// Requests mic access if not yet determined, otherwise opens the
+    /// relevant System Settings pane so the user can flip it manually.
+    /// Always refreshes `microphoneStatus` at the end.
+    func requestMicrophone() async {
+        let current = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        switch current {
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            microphoneStatus = granted ? .authorized : .denied
+        case .denied, .restricted:
+            openMicrophoneSettings()
+            microphoneStatus = current
+        case .authorized:
+            microphoneStatus = .authorized
+        @unknown default:
+            microphoneStatus = current
+        }
+    }
+
+    func refreshMicrophoneStatus() {
+        microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
+    func openMicrophoneSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    // MARK: - Accessibility
+
+    func refreshAccessibilityStatus() {
+        accessibilityStatus = AXIsProcessTrusted()
+    }
+
+    /// Shows the system prompt that adds Ora to the Accessibility list
+    /// in System Settings. Safe to call repeatedly — the system only
+    /// surfaces the prompt if not already trusted.
+    func promptAccessibilityIfNeeded() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue()
+        let options = [key: true] as CFDictionary
+        accessibilityStatus = AXIsProcessTrustedWithOptions(options)
+    }
+
+    func openAccessibilitySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
 }
