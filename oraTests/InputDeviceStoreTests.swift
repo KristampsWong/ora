@@ -14,22 +14,24 @@ import Testing
 
 @MainActor
 struct InputDeviceStoreTests {
-    private func makePrefs() -> Preferences {
-        let suiteName = "ora.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        return Preferences(defaults: defaults)
-    }
-
     @Test("fresh store reads nil selectedUID from preferences")
     func initialSelectedUIDIsNil() {
-        let prefs = makePrefs()
+        let suiteName = "ora.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let prefs = Preferences(defaults: defaults)
         let store = InputDeviceStore(preferences: prefs)
         #expect(store.selectedUID == nil)
     }
 
     @Test("select(uid:) updates published value and persists through preferences")
     func selectWritesToPrefs() {
-        let prefs = makePrefs()
+        let suiteName = "ora.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let prefs = Preferences(defaults: defaults)
         let store = InputDeviceStore(preferences: prefs)
 
         store.select(uid: "BuiltInMicrophoneDevice")
@@ -40,7 +42,11 @@ struct InputDeviceStoreTests {
 
     @Test("select(uid: nil) clears the selection")
     func selectNilClears() {
-        let prefs = makePrefs()
+        let suiteName = "ora.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let prefs = Preferences(defaults: defaults)
         prefs.selectedInputDeviceUID = "BuiltInMicrophoneDevice"
         let store = InputDeviceStore(preferences: prefs)
 
@@ -52,7 +58,11 @@ struct InputDeviceStoreTests {
 
     @Test("store hydrates selectedUID from preferences on init")
     func initHydratesFromPrefs() {
-        let prefs = makePrefs()
+        let suiteName = "ora.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let prefs = Preferences(defaults: defaults)
         prefs.selectedInputDeviceUID = "AirPodsProDevice"
 
         let store = InputDeviceStore(preferences: prefs)
