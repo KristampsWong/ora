@@ -15,7 +15,21 @@ struct oraApp: App {
     @State private var modelManager = ModelManager.shared
 
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra(
+            isInserted: Binding(
+                get: { preferences.showInStatusBar },
+                set: { preferences.showInStatusBar = $0 }
+            )
+        ) {
+            MenuBarView()
+                .environment(preferences)
+                .environment(modelManager)
+        } label: {
+            MenuBarIcon(permissions: appDelegate.permissions)
+        }
+        .menuBarExtraStyle(.menu)
+
+        Window("Settings", id: "settings") {
             ContentView()
                 .environment(preferences)
                 .environment(modelManager)
@@ -28,32 +42,33 @@ struct oraApp: App {
         }
         .windowResizability(.contentSize)
 
-        MenuBarExtra(
-            "Ora",
-            systemImage: "waveform",
-            isInserted: Binding(
-                get: { preferences.showInStatusBar },
-                set: { preferences.showInStatusBar = $0 }
-            )
-        ) {
-            MenuBarView()
-                .environment(preferences)
-                .environment(modelManager)
+        Window("Get Started", id: "onboarding") {
+            OnboardingWindowContent(permissions: appDelegate.permissions)
+                .frame(width: 520, height: 520)
         }
-        .menuBarExtraStyle(.menu)
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
     }
 }
 
 /// Menu-bar-first app delegate.
 ///
-/// The real "no dock icon at launch" guarantee comes from
-/// `INFOPLIST_KEY_LSUIElement = YES` in the target's build settings — with
-/// that flag the app launches as an agent and the dock never knows about
-/// it in the first place, so there's no flash to hide. This delegate then
-/// reads the user's `Show in Dock` preference and promotes the activation
-/// policy to `.regular` if they've opted in.
+/// `INFOPLIST_KEY_LSUIElement = YES` in the target's build settings is
+/// what guarantees no dock icon at launch — with that flag the app
+/// launches as an agent. This delegate then reads the user's
+/// `Show in Dock` preference and promotes the activation policy if
+/// they've opted in. It also owns the shared `Permissions` observable
+/// that the onboarding window and menu-bar icon both read.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Shared permission observable. Owned here so the onboarding
+    /// window and launch-time `MenuBarIcon.task` see the same
+    /// instance. The dictation pipeline does NOT use this — it still
+    /// reads `MicrophonePermission.status` and `Paster.isTrusted`
+    /// directly at hotkey time. See the onboarding wire-up design doc
+    /// for why the two sources are not unified yet.
+    let permissions = Permissions()
+
     /// The dictation pipeline. Created at launch; owns hotkey, recorder,
     /// transcriber, paster, and the overlay controller. The coordinator's
     /// lifetime is the process's lifetime — Carbon hotkey registration
@@ -73,5 +88,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and closing the Settings window should hide it, not kill the app.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// If the user clicks the Dock icon (when `showInDock` is enabled)
+    /// and no windows are visible, bring any existing windows forward
+    /// rather than opening the default one. Mirrors whisper.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            for window in sender.windows {
+                window.makeKeyAndOrderFront(nil)
+            }
+            sender.activate()
+        }
+        return true
+    }
+}
+
+// MARK: - MenuBarIcon
+
+/// Hosts the menu-bar label image AND the launch-time "should we open
+/// onboarding?" decision. Kept as its own view so that permission
+/// observation doesn't force `oraApp.body` to re-evaluate — re-diffing
+/// the scene graph when permissions change is both wasteful and known
+/// to trigger SwiftUI Window-scene edge cases.
+private struct MenuBarIcon: View {
+    let permissions: Permissions
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: "waveform")
+            .accessibilityLabel("Ora")
+            .task {
+                let shouldShow = !Preferences.shared.hasCompletedOnboarding
+                    || !permissions.allPermissionsGranted
+                if shouldShow {
+                    openWindow(id: "onboarding")
+                }
+            }
+    }
+}
+
+// MARK: - OnboardingWindowContent
+
+/// Wrapper that owns the `@Environment(\.dismiss)` +
+/// `@Environment(\.openWindow)` bindings for the onboarding window and
+/// runs the "did we finish?" side effects.
+private struct OnboardingWindowContent: View {
+    let permissions: Permissions
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        GetStartedView(
+            permissions: permissions,
+            onComplete: {
+                Preferences.shared.hasCompletedOnboarding = true
+
+                let selectedId = Preferences.shared.selectedModelId ?? "parakeet-v3"
+                if !ModelManager.shared.isInstalled(selectedId) {
+                    openWindow(id: "settings")
+                    NotificationCenter.default.post(
+                        name: .oraOpenSettingsPage,
+                        object: SettingsPage.models
+                    )
+                }
+                dismiss()
+            }
+        )
+        .onAppear {
+            // Promote the onboarding window to floating so it stays on
+            // top of System Settings while the user grants permissions.
+            // TODO: replace with .windowLevel(.floating) scene modifier
+            // once the minimum deployment target is macOS 15.
+            Task { @MainActor in
+                if let window = NSApp.windows.first(where: { $0.title == "Get Started" }) {
+                    window.level = .floating
+                    window.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        }
     }
 }
