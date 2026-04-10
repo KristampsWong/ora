@@ -90,10 +90,32 @@ final class Permissions {
     /// Shows the system prompt that adds Ora to the Accessibility list
     /// in System Settings. Safe to call repeatedly — the system only
     /// surfaces the prompt if not already trusted.
+    ///
+    /// On macOS Sonoma+ this API became unreliable: the system dialog
+    /// frequently does not appear, especially for ad-hoc signed dev
+    /// builds or after a previous TCC reset. The side effect of adding
+    /// Ora to the Accessibility list still happens, but the user has
+    /// no visible signal anything occurred. Prefer `requestAccessibility()`
+    /// from UI code paths — it pairs this call with an explicit
+    /// settings-pane open so the click is always observable.
     func promptAccessibilityIfNeeded() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue()
         let options = [key: true] as CFDictionary
         accessibilityStatus = AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// High-level "make accessibility happen" entry point for UI code.
+    /// Idempotent if already granted. Otherwise: seeds the TCC entry
+    /// (so Ora appears in the Accessibility list) AND opens System
+    /// Settings to the Accessibility pane so the user sees where to
+    /// flip the toggle. Mirrors `requestMicrophone`'s contract of
+    /// "click does something visible."
+    func requestAccessibility() {
+        if accessibilityGranted { return }
+        promptAccessibilityIfNeeded()
+        if !accessibilityGranted {
+            openAccessibilitySettings()
+        }
     }
 
     func openAccessibilitySettings() {

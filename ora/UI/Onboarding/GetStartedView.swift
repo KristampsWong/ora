@@ -275,7 +275,7 @@ struct GetStartedView: View {
         case .microphone:
             Task { await realPermissions.requestMicrophone() }
         case .accessibility:
-            realPermissions.promptAccessibilityIfNeeded()
+            realPermissions.requestAccessibility()
         }
     }
 
