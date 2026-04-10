@@ -47,10 +47,11 @@ final class HotkeyService {
     private var handlerBoxPtr: UnsafeMutableRawPointer?
 
     /// Tracks whether the registered key is currently held down.
-    /// Accessed from the tap's background thread — use atomic-like
-    /// access via a lock. For simplicity we use a plain Bool guarded
-    /// by dispatch to main: the tap callback reads `registeredKey`
-    /// and `isPressed` only through the main-dispatched closure.
+    /// Thread-safe because all reads and writes happen on the main
+    /// thread: the background tap callback extracts keyCode + flags,
+    /// then dispatches to `DispatchQueue.main.async` where
+    /// `processFlagsChanged` reads/writes `isPressed` and
+    /// `registeredKey`.
     private var isPressed = false
 
     deinit {
@@ -141,13 +142,16 @@ final class HotkeyService {
     }
 
     private func stopEventTap() {
-        if let rl = runLoopRef {
-            CFRunLoopStop(rl)
-            runLoopRef = nil
-        }
+        // Invalidate the port first — this removes the run loop
+        // source, causing CFRunLoopRun to exit even if runLoopRef
+        // hasn't been assigned yet (narrow race on startup).
         if let port = machPort {
             CFMachPortInvalidate(port)
             machPort = nil
+        }
+        if let rl = runLoopRef {
+            CFRunLoopStop(rl)
+            runLoopRef = nil
         }
         tapThread = nil
         releaseHandlerBox()
