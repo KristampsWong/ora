@@ -151,12 +151,20 @@ final class DictationCoordinator {
         hotkey.onRelease = { [weak self] in
             self?.handleRelease()
         }
-        hotkey.register(preferences.activationKey)
+
+        // CGEventTap requires Accessibility permission. Don't create
+        // the tap until it's been granted — otherwise the system shows
+        // its own TCC popup, bypassing our onboarding flow.
+        if Paster.isTrusted {
+            hotkey.register(preferences.activationKey)
+        }
     }
 
-    /// Re-registers the hotkey with the current preference. Called from
-    /// DictationPage when the user changes the shortcut.
+    /// Registers (or re-registers) the hotkey with the current
+    /// preference. Called from DictationPage when the user changes the
+    /// shortcut, and from onboarding when accessibility is granted.
     func updateHotkey() {
+        guard Paster.isTrusted else { return }
         hotkey.register(preferences.activationKey)
     }
 
