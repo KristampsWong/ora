@@ -39,6 +39,9 @@ struct oraApp: App {
                 .onChange(of: preferences.launchAtLogin) { _, newValue in
                     AppearanceController.applyLaunchAtLogin(newValue)
                 }
+                .onChange(of: preferences.appearance) { _, newValue in
+                    AppearanceController.applyAppearance(newValue)
+                }
         }
         .windowResizability(.contentSize)
 
