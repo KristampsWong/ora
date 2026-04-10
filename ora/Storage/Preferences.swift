@@ -22,6 +22,7 @@ final class Preferences {
         static let showInStatusBar = "ora.showInStatusBar"
         static let launchAtLogin = "ora.launchAtLogin"
         static let activationKey = "ora.activationKey"
+        static let selectedInputDeviceUID = "ora.selectedInputDeviceUID"
     }
 
     private let defaults: UserDefaults
@@ -54,6 +55,20 @@ final class Preferences {
         didSet { defaults.set(activationKey.rawValue, forKey: Key.activationKey) }
     }
 
+    /// UID of the input device the user pinned for dictation. `nil`
+    /// means "Follow System Default" — the recorder uses whatever the
+    /// system default input is at record time. Stable across reboots
+    /// and reconnects (HAL `kAudioDevicePropertyDeviceUID`).
+    var selectedInputDeviceUID: String? {
+        didSet {
+            if let selectedInputDeviceUID {
+                defaults.set(selectedInputDeviceUID, forKey: Key.selectedInputDeviceUID)
+            } else {
+                defaults.removeObject(forKey: Key.selectedInputDeviceUID)
+            }
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.selectedModelId = defaults.string(forKey: Key.selectedModelId) ?? "parakeet-v3"
@@ -68,5 +83,6 @@ final class Preferences {
         } else {
             self.activationKey = .default
         }
+        self.selectedInputDeviceUID = defaults.string(forKey: Key.selectedInputDeviceUID)
     }
 }
