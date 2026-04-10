@@ -2,26 +2,16 @@
 //  DictationPage.swift
 //  ora
 //
-//  Dictation trigger settings — hotkey and input mode.
-//  UI-only: local @State, no real hotkey registration.
+//  Dictation trigger settings — hotkey shortcut and input mode.
 //
 
 import SwiftUI
 
 struct DictationPage: View {
     @Environment(Preferences.self) private var preferences
-    @State private var activationKey: String = "Right ⌥"
     @State private var inputMode: InputMode = .pushToTalk
     @State private var testInput: String = ""
     @FocusState private var isTestFocused: Bool
-
-    private let activationKeys = [
-        "Right ⌥",
-        "Right ⌘",
-        "Fn",
-        "F5",
-        "⌃Space",
-    ]
 
     enum InputMode: String, CaseIterable, Identifiable {
         case pushToTalk
@@ -52,10 +42,13 @@ struct DictationPage: View {
             }
 
             Section("Trigger") {
-                Picker("Shortcut", selection: $activationKey) {
-                    ForEach(activationKeys, id: \.self) { key in
-                        Text(key).tag(key)
+                Picker("Shortcut", selection: $preferences.activationKey) {
+                    ForEach(ActivationKey.allCases) { key in
+                        Text(key.rawValue).tag(key)
                     }
+                }
+                .onChange(of: preferences.activationKey) { _, _ in
+                    DictationCoordinator.shared.updateHotkey()
                 }
 
                 Picker("Input mode", selection: $inputMode) {
@@ -89,7 +82,7 @@ struct DictationPage: View {
                         )
 
                     if testInput.isEmpty {
-                        Text("Hold \(activationKey) and speak to test…")
+                        Text("Hold \(preferences.activationKey.rawValue) and speak to test…")
                             .font(.body)
                             .foregroundStyle(.tertiary)
                             .padding(12)
@@ -104,5 +97,6 @@ struct DictationPage: View {
 
 #Preview {
     DictationPage()
+        .environment(Preferences.shared)
         .frame(width: 500, height: 400)
 }
