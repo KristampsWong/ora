@@ -27,6 +27,7 @@ enum OverlayPhase: Equatable {
     case errorNoMic
     case errorNoAccessibility
     case errorNoModel
+    case errorNoSpeech
     case errorGeneric(String)
 }
 
@@ -143,6 +144,9 @@ struct RecordingOverlayView: View {
                         .transition(.opacity)
                 case .errorNoModel:
                     OverlayErrorContent(icon: "exclamationmark.triangle.fill", color: .orange, text: "No Model")
+                        .transition(.opacity)
+                case .errorNoSpeech:
+                    OverlayErrorContent(icon: "waveform.slash", color: .secondary, text: "No Speech Detected")
                         .transition(.opacity)
                 case .errorGeneric(let message):
                     OverlayErrorContent(icon: "exclamationmark.triangle.fill", color: .orange, text: message)

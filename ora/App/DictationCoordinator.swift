@@ -60,6 +60,7 @@ final class DictationCoordinator {
         case noMic
         case noAccessibility
         case noModel
+        case noSpeech
         case generic(String)
     }
 
@@ -217,6 +218,16 @@ final class DictationCoordinator {
 
         do {
             let buffer = try recorder.stop()
+
+            // Too-short recordings (< 0.3 s) contain no usable speech
+            // and make Parakeet throw an inference error. Treat them
+            // the same as empty audio — silent return to idle.
+            let durationSeconds = Double(buffer.frameLength) / Recorder.targetSampleRate
+            if durationSeconds < 0.3 {
+                transition(to: .idle)
+                return
+            }
+
             transition(to: .transcribing)
             startTranscribePipeline(buffer: buffer)
         } catch {
@@ -299,7 +310,12 @@ final class DictationCoordinator {
                     // No frames captured — treat as a clean idle, not
                     // an error. The user pressed and released too fast.
                     self.transition(to: .idle)
-                case .loadFailed, .inferenceFailed:
+                case .inferenceFailed:
+                    // Most inference failures on real hardware are
+                    // "held the key but didn't speak" — the model
+                    // chokes on silence. Show a friendly nudge.
+                    self.transition(to: .error(.noSpeech))
+                case .loadFailed:
                     self.transition(to: .error(.generic(Self.shortMessage(for: failure))))
                 }
             } catch let failure as Paster.Failure {
@@ -357,6 +373,7 @@ final class DictationCoordinator {
         case .noMic: return .errorNoMic
         case .noAccessibility: return .errorNoAccessibility
         case .noModel: return .errorNoModel
+        case .noSpeech: return .errorNoSpeech
         case .generic(let msg): return .errorGeneric(msg)
         }
     }

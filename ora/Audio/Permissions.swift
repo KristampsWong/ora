@@ -112,10 +112,7 @@ final class Permissions {
     /// "click does something visible."
     func requestAccessibility() {
         if accessibilityGranted { return }
-        promptAccessibilityIfNeeded()
-        if !accessibilityGranted {
-            openAccessibilitySettings()
-        }
+        openAccessibilitySettings()
     }
 
     func openAccessibilitySettings() {
