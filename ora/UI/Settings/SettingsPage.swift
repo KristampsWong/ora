@@ -30,11 +30,3 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         }
     }
 }
-
-extension Notification.Name {
-    /// Posted when something wants the Settings window to jump to a
-    /// specific page. The notification's `object` is the target
-    /// `SettingsPage`. `ContentView` subscribes and updates its
-    /// `selection` when it receives one.
-    static let oraOpenSettingsPage = Notification.Name("ora.openSettingsPage")
-}

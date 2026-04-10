@@ -21,10 +21,18 @@ struct ContentView: View {
                 .navigationTitle(selection.title)
         }
         .frame(minWidth: 680, maxWidth: 680, minHeight: 460)
-        .onReceive(NotificationCenter.default.publisher(for: .oraOpenSettingsPage)) { note in
-            if let page = note.object as? SettingsPage {
-                selection = page
-            }
+        .onAppear(perform: drainPendingPage)
+        .onChange(of: SettingsNavigator.shared.pendingPage) { _, _ in
+            drainPendingPage()
+        }
+    }
+
+    /// Reads any pending page hint from the navigator, applies it,
+    /// and clears it so a subsequent open doesn't re-jump.
+    private func drainPendingPage() {
+        if let page = SettingsNavigator.shared.pendingPage {
+            selection = page
+            SettingsNavigator.shared.pendingPage = nil
         }
     }
 

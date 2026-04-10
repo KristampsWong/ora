@@ -146,11 +146,13 @@ private struct OnboardingWindowContent: View {
 
                 let selectedId = Preferences.shared.selectedModelId ?? "parakeet-v3"
                 if !ModelManager.shared.isInstalled(selectedId) {
+                    // Set the pending page BEFORE openWindow so that
+                    // ContentView.onAppear sees it on its way up. The
+                    // reverse order races against SwiftUI's window
+                    // mount; see SettingsNavigator's header for the
+                    // long version.
+                    SettingsNavigator.shared.pendingPage = .models
                     openWindow(id: "settings")
-                    NotificationCenter.default.post(
-                        name: .oraOpenSettingsPage,
-                        object: SettingsPage.models
-                    )
                 }
                 dismiss()
             }
