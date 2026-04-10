@@ -114,12 +114,12 @@ final class Permissions {
     /// the onboarding window.
     func startMonitoring(interval: Duration = .milliseconds(500)) {
         guard monitoringTask == nil else { return }
-        monitoringTask = Task { [weak self] in
+        monitoringTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else { break }
-                self?.refreshMicrophoneStatus()
-                self?.refreshAccessibilityStatus()
+                self.refreshMicrophoneStatus()
+                self.refreshAccessibilityStatus()
             }
         }
     }
