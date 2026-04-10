@@ -2,199 +2,202 @@
 //  HotkeyService.swift
 //  ora
 //
-//  Global hotkey registration using raw Carbon `RegisterEventHotKey`.
-//  Zero third-party dependencies, runs without any special TCC prompts,
-//  ~120 lines. See M4 in the roadmap for why we picked Carbon over the
-//  `HotKey` SPM package.
+//  Global modifier-only hotkey detection using a CGEventTap watching
+//  `.flagsChanged` events. Replaces the previous Carbon
+//  `RegisterEventHotKey` approach, which cannot handle modifier-only
+//  keys (no virtual keycode to register).
 //
-//  ## Why press AND release
+//  ## How it works
 //
-//  Dictation v1 is hold-to-talk: press starts recording, release stops
-//  it and fires the transcription pipeline. Carbon's keyboard event
-//  class delivers both `kEventHotKeyPressed` and `kEventHotKeyReleased`
-//  as separate events for a single registration, so one `register`
-//  call is enough — no polling, no second code path.
+//  A CGEventTap in `.listenOnly` mode watches `flagsChanged` events
+//  at the session level. Each event carries the keycode of the
+//  physical key that changed and the updated modifier flags. We
+//  compare the keycode against the registered `ActivationKey.keyCode`
+//  and determine press vs release by checking whether the key's
+//  `modifierFlag` is present in the event's flags.
 //
-//  ## Why not modifier-only (right-option / fn)
+//  ## Threading
 //
-//  The original M4 brief said "default hotkey (right-option or fn)".
-//  Carbon's `RegisterEventHotKey` cannot register a modifier-only
-//  hotkey — the API takes a virtual keycode, and a bare modifier has
-//  no keycode. The `HotKey` SPM package has the same limitation.
+//  The event tap callback fires on a dedicated background thread
+//  (same pattern as WhisperIsland's EventMonitor). Press/release
+//  callbacks are dispatched to the main actor via
+//  `DispatchQueue.main.async` so callers don't need to worry about
+//  thread safety.
 //
-//  Modifier-only press/release is possible via a `CGEventTap` watching
-//  `.flagsChanged` events, but that path requires the Input Monitoring
-//  permission (TCC prompt on first run) and a dedicated run-loop
-//  source. It's a bigger chunk of work than M4 deserves, so it's
-//  deferred to M7 polish. For now the default is **Option+Space**,
-//  which RegisterEventHotKey handles natively with no permissions.
+//  ## Permissions
 //
-//  ## Thread model
-//
-//  Carbon events dispatched through `GetApplicationEventTarget()`
-//  deliver on the main run loop, i.e. the main thread. The C handler
-//  function is therefore already on the main actor in practice — we
-//  use `MainActor.assumeIsolated` to cross the type-system boundary
-//  without hopping threads, so press/release latency stays at zero.
+//  CGEventTap requires the Accessibility permission (TCC). Ora
+//  already requests this for Paster, so no new prompt is needed.
+//  If the permission is revoked while the app is running, tapCreate
+//  returns nil and we log the failure.
 //
 
-import AppKit
-import Carbon.HIToolbox
+@preconcurrency import CoreGraphics
+import Foundation
 
 @MainActor
 final class HotkeyService {
-    /// Immutable description of a hotkey combo. `keyCode` is a Carbon
-    /// virtual keycode (e.g. `kVK_Space`); `modifiers` is a bitfield of
-    /// Carbon modifier flags (`cmdKey`, `optionKey`, `shiftKey`,
-    /// `controlKey`).
-    struct Config {
-        let keyCode: UInt32
-        let modifiers: UInt32
-
-        /// Option+Space — the default shipped in M4. Comfortable for
-        /// hold-to-talk, doesn't conflict with Spotlight (Cmd+Space)
-        /// or the system input-source switcher (Ctrl+Space).
-        static let optionSpace = Config(
-            keyCode: UInt32(kVK_Space),
-            modifiers: UInt32(optionKey)
-        )
-    }
-
-    /// Called on the main actor the instant the hotkey goes down.
     var onPress: (() -> Void)?
-    /// Called on the main actor the instant the hotkey goes up. For a
-    /// held key, this fires exactly once per press — key repeat does
-    /// not generate spurious release events.
     var onRelease: (() -> Void)?
 
-    private var hotKeyRef: EventHotKeyRef?
-    private var handlerRef: EventHandlerRef?
+    private var registeredKey: ActivationKey?
+    private var tapThread: Thread?
+    nonisolated(unsafe) private var runLoopRef: CFRunLoop?
+    private var machPort: CFMachPort?
+    private var handlerBoxPtr: UnsafeMutableRawPointer?
 
-    /// `RegisterEventHotKey` takes an application-scoped ID; any
-    /// non-zero value works. 'ora ' as an OSType (four-byte code) is
-    /// only used for debugging inside Activity Monitor / Instruments.
-    private static let signature: OSType = 0x6F_72_61_20 // 'ora '
+    /// Tracks whether the registered key is currently held down.
+    /// Accessed from the tap's background thread — use atomic-like
+    /// access via a lock. For simplicity we use a plain Bool guarded
+    /// by dispatch to main: the tap callback reads `registeredKey`
+    /// and `isPressed` only through the main-dispatched closure.
+    private var isPressed = false
 
     deinit {
-        // Deinit can't touch MainActor-isolated state, so call the
-        // Carbon APIs directly. Both are safe to call on any thread
-        // and are no-ops with a nil argument check.
-        if let handlerRef {
-            RemoveEventHandler(handlerRef)
+        // deinit is nonisolated on @MainActor classes, so we stop
+        // the run loop directly (CFRunLoopStop is thread-safe).
+        if let rl = runLoopRef {
+            CFRunLoopStop(rl)
         }
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
+        if let port = machPort {
+            CFMachPortInvalidate(port)
+        }
+        // Inline releaseHandlerBox — can't call MainActor methods from deinit.
+        if let ptr = handlerBoxPtr {
+            Unmanaged<HandlerBox>.fromOpaque(ptr).release()
         }
     }
 
     // MARK: - Registration
 
-    /// Registers (or re-registers) the global hotkey. Replacing an
-    /// existing registration is supported — the old one is torn down
-    /// first so the event handler and hotkey ref never leak.
-    func register(_ config: Config) {
-        unregister()
+    /// Registers (or re-registers) the modifier-only hotkey.
+    /// Starts the CGEventTap if it isn't already running, or
+    /// simply swaps the target key if it is.
+    func register(_ key: ActivationKey) {
+        let wasRunning = registeredKey != nil
+        registeredKey = key
+        isPressed = false
 
-        var eventTypes: [EventTypeSpec] = [
-            EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventHotKeyPressed)
-            ),
-            EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventHotKeyReleased)
-            ),
-        ]
-
-        // Pass `self` as the userData pointer so the C handler can
-        // locate the service instance. `passUnretained` is correct
-        // here — the service owns the registration and always
-        // outlives the handler (see unregister / deinit).
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-
-        // Carbon's `EventHandlerUPP` is a `@convention(c)` pointer, so
-        // the callback must be a literal closure (or a top-level func)
-        // with no captures. A reference to a separately-declared Swift
-        // function compiles but trips "a C function pointer can only
-        // be formed from a reference to a 'func' or a literal closure"
-        // in some Swift versions, so we use the literal-closure form
-        // which is unambiguously convertible.
-        var handler: EventHandlerRef?
-        let installStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            { (_: EventHandlerCallRef?, event: EventRef?, userData: UnsafeMutableRawPointer?) -> OSStatus in
-                guard let event, let userData else { return noErr }
-                let service = Unmanaged<HotkeyService>
-                    .fromOpaque(userData)
-                    .takeUnretainedValue()
-                let kind = GetEventKind(event)
-                MainActor.assumeIsolated {
-                    service.dispatch(kind: kind)
-                }
-                return noErr
-            },
-            2,
-            &eventTypes,
-            selfPtr,
-            &handler
-        )
-        guard installStatus == noErr else {
-            print("[Hotkey] InstallEventHandler failed with OSStatus \(installStatus)")
-            return
+        if !wasRunning {
+            startEventTap()
         }
-        handlerRef = handler
-
-        let hotKeyID = EventHotKeyID(signature: Self.signature, id: 1)
-        var ref: EventHotKeyRef?
-        let registerStatus = RegisterEventHotKey(
-            config.keyCode,
-            config.modifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &ref
-        )
-        guard registerStatus == noErr else {
-            // Common failure mode: another app has already registered
-            // the same combo. Tear down the handler we just installed
-            // so we don't sit on a dangling subscription.
-            print("[Hotkey] RegisterEventHotKey failed with OSStatus \(registerStatus)")
-            if let handlerRef {
-                RemoveEventHandler(handlerRef)
-                self.handlerRef = nil
-            }
-            return
-        }
-        hotKeyRef = ref
     }
 
-    /// Tears down the current registration if any. Idempotent.
+    /// Tears down the current registration. Stops the event tap.
     func unregister() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+        registeredKey = nil
+        isPressed = false
+        stopEventTap()
+    }
+
+    // MARK: - Event tap lifecycle
+
+    private func startEventTap() {
+        let mask: CGEventMask = 1 << CGEventType.flagsChanged.rawValue
+
+        // The handler closure is passed as a C function pointer via
+        // the HandlerBox pattern (same as WhisperIsland's EventMonitor).
+        let box = Unmanaged.passRetained(
+            HandlerBox { [weak self] event in
+                self?.handleFlagsChanged(event)
+            }
+        )
+        let ptr = box.toOpaque()
+        handlerBoxPtr = ptr
+
+        let port = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: { _, _, event, userInfo in
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                let box = Unmanaged<HandlerBox>.fromOpaque(userInfo).takeUnretainedValue()
+                box.handler(event)
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: ptr
+        )
+
+        guard let port else {
+            print("[Hotkey] CGEvent.tapCreate failed — Accessibility permission may be missing")
+            releaseHandlerBox()
+            return
         }
-        if let handlerRef {
-            RemoveEventHandler(handlerRef)
-            self.handlerRef = nil
+        machPort = port
+
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+
+        let thread = Thread { [weak self] in
+            guard let self, let source else { return }
+            self.runLoopRef = CFRunLoopGetCurrent()
+            CFRunLoopAddSource(self.runLoopRef, source, .commonModes)
+            CFRunLoopRun()
+        }
+        thread.name = "com.ora.hotkey-eventtap"
+        thread.qualityOfService = .userInteractive
+        tapThread = thread
+        thread.start()
+    }
+
+    private func stopEventTap() {
+        if let rl = runLoopRef {
+            CFRunLoopStop(rl)
+            runLoopRef = nil
+        }
+        if let port = machPort {
+            CFMachPortInvalidate(port)
+            machPort = nil
+        }
+        tapThread = nil
+        releaseHandlerBox()
+    }
+
+    private func releaseHandlerBox() {
+        if let ptr = handlerBoxPtr {
+            Unmanaged<HandlerBox>.fromOpaque(ptr).release()
+            handlerBoxPtr = nil
         }
     }
 
-    // MARK: - Dispatch (called from the C handler)
+    // MARK: - Event handling (called on background thread)
 
-    /// Invoked from the top-level C handler once it has resolved the
-    /// service pointer. Guaranteed to be on the main thread (Carbon
-    /// dispatches application-target events there), so we use
-    /// `assumeIsolated` to cross into MainActor without a hop.
-    fileprivate func dispatch(kind: UInt32) {
-        switch Int(kind) {
-        case kEventHotKeyPressed:
+    /// Called from the CGEventTap callback on the background thread.
+    /// Dispatches press/release to main.
+    private nonisolated func handleFlagsChanged(_ event: CGEvent) {
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags
+
+        DispatchQueue.main.async { [weak self] in
+            self?.processFlagsChanged(keyCode: keyCode, flags: flags)
+        }
+    }
+
+    /// Runs on main. Compares the event's keycode against the
+    /// registered key and fires press/release callbacks.
+    private func processFlagsChanged(keyCode: CGKeyCode, flags: CGEventFlags) {
+        guard let registeredKey else { return }
+        guard keyCode == registeredKey.keyCode else { return }
+
+        let isDown = flags.contains(registeredKey.modifierFlag)
+
+        if isDown && !isPressed {
+            isPressed = true
             onPress?()
-        case kEventHotKeyReleased:
+        } else if !isDown && isPressed {
+            isPressed = false
             onRelease?()
-        default:
-            break
         }
     }
 }
 
+// MARK: - HandlerBox
+
+/// Reference-type wrapper so we can pass a Swift closure through
+/// the C function pointer callback via `Unmanaged`.
+private final class HandlerBox {
+    let handler: (CGEvent) -> Void
+    init(_ handler: @escaping (CGEvent) -> Void) {
+        self.handler = handler
+    }
+}
