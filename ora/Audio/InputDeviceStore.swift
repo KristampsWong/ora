@@ -94,6 +94,16 @@ final class InputDeviceStore {
         var result: [InputDevice] = []
         result.reserveCapacity(ids.count)
         for id in ids {
+            // Skip devices the system marks as hidden — e.g.
+            // `CADefaultDeviceAggregate`, which macOS exposes as an
+            // internal wrapper around the current default input and
+            // which would show up as a confusing duplicate of our
+            // own "System Default" entry. User-created aggregates
+            // and third-party virtual mics (BlackHole, Loopback,
+            // meeting-app audio drivers) do NOT set this flag, so
+            // they stay visible.
+            if deviceIsHidden(id) { continue }
+
             guard deviceHasInputStreams(id),
                   let uid = deviceStringProperty(id, selector: kAudioDevicePropertyDeviceUID),
                   let name = deviceStringProperty(id, selector: kAudioObjectPropertyName)
@@ -101,6 +111,24 @@ final class InputDeviceStore {
             result.append(InputDevice(uid: uid, name: name, audioDeviceID: id))
         }
         return result
+    }
+
+    /// Reads `kAudioDevicePropertyIsHidden`. Core Audio sets this for
+    /// devices that shouldn't appear in user-facing pickers — most
+    /// notably the default-aggregate wrapper. Returns `false` on any
+    /// HAL error (fail-open: better to show a device than hide a
+    /// real one).
+    private static func deviceIsHidden(_ id: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyIsHidden,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var isHidden: UInt32 = 0
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &dataSize, &isHidden)
+        guard status == noErr else { return false }
+        return isHidden != 0
     }
 
     private static func allAudioDeviceIDs() -> [AudioDeviceID] {
