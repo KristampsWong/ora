@@ -77,6 +77,14 @@ final class DictationCoordinator {
     private let preferences: Preferences
     private let inputDeviceStore: InputDeviceStore
 
+    // MARK: - Shared dependencies exposed for SwiftUI environments
+
+    /// The input device store owned by this coordinator. Exposed so
+    /// the app scene can inject the same instance into `MenuBarView`
+    /// via `.environment(_:)` — both the menu and the record-time
+    /// resolver must see the same published state.
+    var inputDevices: InputDeviceStore { inputDeviceStore }
+
     // MARK: - In-flight task bookkeeping
 
     /// The transcribe + paste pipeline launched on hotkey release.
