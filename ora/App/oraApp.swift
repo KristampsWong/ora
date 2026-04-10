@@ -95,7 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// rather than opening the default one. Mirrors whisper.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            for window in sender.windows {
+            // Only resurface windows the user had previously made
+            // visible — SwiftUI keeps scene-backing windows alive
+            // after dismissal, and we don't want to re-show a
+            // dismissed onboarding window from a Dock-icon click.
+            for window in sender.windows where window.isVisible {
                 window.makeKeyAndOrderFront(nil)
             }
             sender.activate()
@@ -162,12 +166,10 @@ private struct OnboardingWindowContent: View {
             // top of System Settings while the user grants permissions.
             // TODO: replace with .windowLevel(.floating) scene modifier
             // once the minimum deployment target is macOS 15.
-            Task { @MainActor in
-                if let window = NSApp.windows.first(where: { $0.title == "Get Started" }) {
-                    window.level = .floating
-                    window.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                }
+            if let window = NSApp.windows.first(where: { $0.title == "Get Started" }) {
+                window.level = .floating
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
             }
         }
     }
