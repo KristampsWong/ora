@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# dev-env.local.sh.example — template for the gitignored
+# scripts/dev-env.local.sh.
+#
+# Why this file exists:
+#   Some dev workflows want to override the code-signing identity and
+#   development team that xcodebuild uses, without touching pbxproj
+#   (which is committed). Copy this file to scripts/dev-env.local.sh,
+#   fill in your real values, and a future build wrapper will source
+#   it before invoking xcodebuild.
+#
+#   The committed pbxproj already has working defaults — this file is
+#   only useful if you specifically need to override them locally
+#   (e.g. building under a different Apple Developer team than the
+#   one baked into the project).
+#
+# Setup:
+#   cp scripts/dev-env.local.sh.example scripts/dev-env.local.sh
+#   $EDITOR scripts/dev-env.local.sh   # fill in real values
+#
+# Security:
+#   scripts/dev-env.local.sh is gitignored. Do NOT commit it. The
+#   identity string contains your team id, which is non-public for
+#   open-source projects.
+
+# Replace with your "Developer ID Application: <Name> (<TEAMID>)" string.
+# Find yours with: security find-identity -v -p codesigning
+export ORA_DEV_SIGN_IDENTITY="Developer ID Application: Your Name (XXXXXXXXXX)"
+
+# Replace with your Apple Developer Team ID (10 chars).
+export ORA_DEV_TEAM="XXXXXXXXXX"

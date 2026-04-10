@@ -35,3 +35,8 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Local dev env (signing identity, team id) — never commit.
+# Copy scripts/dev-env.local.sh.example to scripts/dev-env.local.sh
+# and fill in your own values.
+scripts/dev-env.local.sh
