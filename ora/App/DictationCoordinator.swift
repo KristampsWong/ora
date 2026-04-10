@@ -311,10 +311,12 @@ final class DictationCoordinator {
                     // an error. The user pressed and released too fast.
                     self.transition(to: .idle)
                 case .inferenceFailed:
-                    // Most inference failures on real hardware are
-                    // "held the key but didn't speak" — the model
-                    // chokes on silence. Show a friendly nudge.
-                    self.transition(to: .error(.noSpeech))
+                    // Inference failures are usually silence, but also
+                    // fire on very short utterances the model can't
+                    // decode. Either way the user knows whether they
+                    // spoke — a noisy error pill adds nothing. Silent
+                    // dismiss.
+                    self.transition(to: .idle)
                 case .loadFailed:
                     self.transition(to: .error(.generic(Self.shortMessage(for: failure))))
                 }

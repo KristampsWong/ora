@@ -34,6 +34,11 @@ final class RecordingOverlayController {
     private var panel: NSPanel?
     let state = RecordingOverlayState()
 
+    /// Fixed panel width, wide enough for the longest error pill.
+    /// The panel background is transparent so the extra width is
+    /// invisible; the SwiftUI capsule centers itself inside.
+    private static let panelWidth: CGFloat = 320
+
     /// True iff the NSPanel currently exists. Used by
     /// DictationCoordinator.present(_) to pick between show(phase:)
     /// and direct state.phase mutation. M6 addition (not in the
@@ -47,11 +52,12 @@ final class RecordingOverlayController {
 
         let content = RecordingOverlayView(state: state)
         let hosting = NSHostingView(rootView: content)
-        let fittingSize = hosting.fittingSize
-        hosting.frame = NSRect(origin: .zero, size: fittingSize)
+        let panelHeight = hosting.fittingSize.height
+        let panelSize = NSSize(width: Self.panelWidth, height: panelHeight)
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
 
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: fittingSize),
+            contentRect: NSRect(origin: .zero, size: panelSize),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -61,11 +67,14 @@ final class RecordingOverlayController {
         panel.level = .floating
         panel.hasShadow = false
         panel.contentView = hosting
-        panel.isMovableByWindowBackground = true
 
-        if let screen = NSScreen.main {
+        // Position on the screen where the user's mouse cursor is,
+        // not NSScreen.main (which may point at the primary display
+        // when the user is working on an external monitor).
+        let screen = Self.screenWithMouseCursor() ?? NSScreen.main
+        if let screen {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - fittingSize.width / 2
+            let x = screenFrame.midX - Self.panelWidth / 2
             let y = screenFrame.maxY - 50
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -79,5 +88,13 @@ final class RecordingOverlayController {
         panel = nil
         state.phase = .done
         state.audioLevel = 0
+    }
+
+    // MARK: - Screen detection
+
+    /// Returns the screen containing the current mouse cursor position.
+    private static func screenWithMouseCursor() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
     }
 }

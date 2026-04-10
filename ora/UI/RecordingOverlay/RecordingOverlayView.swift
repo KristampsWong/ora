@@ -133,6 +133,11 @@ struct RecordingOverlayView: View {
     var state: RecordingOverlayState
 
     var body: some View {
+        pill
+            .frame(maxWidth: .infinity)
+    }
+
+    private var pill: some View {
         HStack(spacing: 10) {
             Group {
                 switch state.phase {
