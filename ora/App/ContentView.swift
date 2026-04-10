@@ -21,6 +21,11 @@ struct ContentView: View {
                 .navigationTitle(selection.title)
         }
         .frame(minWidth: 680, maxWidth: 680, minHeight: 460)
+        .onReceive(NotificationCenter.default.publisher(for: .oraOpenSettingsPage)) { note in
+            if let page = note.object as? SettingsPage {
+                selection = page
+            }
+        }
     }
 
     @ViewBuilder
