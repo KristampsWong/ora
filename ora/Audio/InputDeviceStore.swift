@@ -164,7 +164,11 @@ final class InputDeviceStore {
     }
 
     /// Reads a CFString-valued HAL property (UID, human name) on the
-    /// global scope of `id` and bridges it to `String`.
+    /// global scope of `id` and bridges it to `String`. Uses
+    /// `Unmanaged<CFString>` because HAL returns a retained (+1)
+    /// reference under the Core Foundation "Copy" rule, and because
+    /// passing `&cfString` for a bare `CFString?` trips a Swift warning
+    /// about forming a raw pointer to an object reference.
     private static func deviceStringProperty(
         _ id: AudioDeviceID,
         selector: AudioObjectPropertySelector
@@ -174,10 +178,10 @@ final class InputDeviceStore {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var dataSize = UInt32(MemoryLayout<CFString?>.size)
-        var cfString: CFString?
+        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var cfString: Unmanaged<CFString>?
         let status = AudioObjectGetPropertyData(id, &address, 0, nil, &dataSize, &cfString)
         guard status == noErr, let cfString else { return nil }
-        return cfString as String
+        return cfString.takeRetainedValue() as String
     }
 }
