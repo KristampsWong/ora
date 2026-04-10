@@ -40,6 +40,7 @@
 //  actor Task using `Task.sleep`.
 //
 
+import AppKit
 import AVFoundation
 import Foundation
 import Observation
@@ -301,6 +302,7 @@ final class DictationCoordinator {
                 }
 
                 try await self.paster.paste(text)
+                self.playSuccessSoundIfEnabled()
                 self.transition(to: .idle)
             } catch let failure as FluidAudioTranscriber.Failure {
                 switch failure {
@@ -378,6 +380,15 @@ final class DictationCoordinator {
         case .noSpeech: return .errorNoSpeech
         case .generic(let msg): return .errorGeneric(msg)
         }
+    }
+
+    /// Plays the user's chosen notification sound, if enabled.
+    /// Called from the paste-success arm of the transcribe pipeline —
+    /// empty-audio / inference-failed / too-short paths all silently
+    /// return to idle and should NOT trigger a chime.
+    private func playSuccessSoundIfEnabled() {
+        guard preferences.notificationSoundEnabled else { return }
+        NSSound(named: preferences.notificationSoundName)?.play()
     }
 
     private func scheduleErrorDismiss() {
