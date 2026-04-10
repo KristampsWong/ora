@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct MenuBarView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var selectedInputName = "MacBook Pro Microphone"
 
     private static let mockInputDevices = [
@@ -23,7 +24,12 @@ struct MenuBarView: View {
         // sidebar and menu stay in sync automatically.
         ForEach(SettingsPage.allCases) { page in
             Button {
-                // TODO: open Settings on the matching page when navigation is wired.
+                // Set the navigator BEFORE openWindow so ContentView's
+                // .onAppear/.onChange picks it up on the way up. This
+                // is the same race-free pattern OnboardingWindowContent
+                // uses — see SettingsNavigator's header for the why.
+                SettingsNavigator.shared.pendingPage = page
+                openWindow(id: "settings")
             } label: {
                 Label(page.title, systemImage: page.icon)
             }
