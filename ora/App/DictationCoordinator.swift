@@ -157,6 +157,23 @@ final class DictationCoordinator {
         // its own TCC popup, bypassing our onboarding flow.
         if Paster.isTrusted {
             hotkey.register(preferences.activationKey)
+        } else {
+            waitForAccessibility()
+        }
+    }
+
+    /// Polls until Accessibility is granted, then registers the hotkey.
+    /// Self-cancelling — stops as soon as the tap is created.
+    private func waitForAccessibility() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let self, !Task.isCancelled else { break }
+                if Paster.isTrusted {
+                    self.hotkey.register(self.preferences.activationKey)
+                    return
+                }
+            }
         }
     }
 

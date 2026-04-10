@@ -84,14 +84,7 @@ final class Permissions {
     // MARK: - Accessibility
 
     func refreshAccessibilityStatus() {
-        let wasTrusted = accessibilityStatus
         accessibilityStatus = AXIsProcessTrusted()
-
-        // When the user grants accessibility (e.g. during onboarding),
-        // kick the hotkey service so the CGEventTap gets created.
-        if !wasTrusted && accessibilityStatus {
-            DictationCoordinator.shared.updateHotkey()
-        }
     }
 
     /// Shows the system prompt that adds Ora to the Accessibility list
