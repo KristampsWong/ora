@@ -77,7 +77,7 @@ struct InputDeviceStoreTests {
     @Test("isSystemDefaultChecked: true when selectedUID is stale (not in devices)")
     func systemDefaultCheckedWhenStale() {
         let devices = [
-            InputDevice(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", id: 42)
+            InputDevice(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", audioDeviceID: 42)
         ]
         #expect(
             InputDeviceStore.isSystemDefaultChecked(selectedUID: "GoneDevice", devices: devices) == true
@@ -87,7 +87,7 @@ struct InputDeviceStoreTests {
     @Test("isSystemDefaultChecked: false when selectedUID matches a current device")
     func systemDefaultUncheckedWhenMatched() {
         let devices = [
-            InputDevice(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", id: 42)
+            InputDevice(uid: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", audioDeviceID: 42)
         ]
         #expect(
             InputDeviceStore.isSystemDefaultChecked(

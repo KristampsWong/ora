@@ -4,7 +4,7 @@
 //
 //  One enumerated Core Audio input device. UID is the stable identity
 //  (persists across reboots and reconnects — HAL
-//  `kAudioDevicePropertyDeviceUID`); `id` is the ephemeral
+//  `kAudioDevicePropertyDeviceUID`); `audioDeviceID` is the ephemeral
 //  `AudioDeviceID` handle that is only valid between enumeration and
 //  immediate use. `name` is the human-readable label shown in the
 //  menu.
@@ -16,9 +16,9 @@ import Foundation
 struct InputDevice: Identifiable, Hashable, Sendable {
     let uid: String
     let name: String
-    let id: AudioDeviceID
+    let audioDeviceID: AudioDeviceID
 
-    var identifier: String { uid }
+    var id: String { uid }
 }
 
 extension InputDevice {

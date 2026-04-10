@@ -84,7 +84,7 @@ final class InputDeviceStore {
     func resolveSelectedDeviceID() -> AudioDeviceID? {
         guard let selectedUID else { return nil }
         let current = Self.enumerateInputDevices()
-        return current.first(where: { $0.uid == selectedUID })?.id
+        return current.first(where: { $0.uid == selectedUID })?.audioDeviceID
     }
 
     // MARK: - Core Audio property reads
@@ -98,7 +98,7 @@ final class InputDeviceStore {
                   let uid = deviceStringProperty(id, selector: kAudioDevicePropertyDeviceUID),
                   let name = deviceStringProperty(id, selector: kAudioObjectPropertyName)
             else { continue }
-            result.append(InputDevice(uid: uid, name: name, id: id))
+            result.append(InputDevice(uid: uid, name: name, audioDeviceID: id))
         }
         return result
     }
