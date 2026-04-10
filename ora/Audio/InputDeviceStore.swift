@@ -60,19 +60,124 @@ final class InputDeviceStore {
 
     // MARK: - HAL enumeration
 
-    /// Re-enumerates Core Audio input devices and publishes the
-    /// result. Added in a later task.
+    /// Re-enumerates Core Audio input devices and publishes the list.
+    /// Cheap enough to call on every menu open — a typical Mac reports
+    /// 2–5 devices and the whole pass is a handful of HAL property
+    /// reads.
+    ///
+    /// The equality guard is load-bearing: `MenuBarView.body` calls
+    /// `refresh()` on every menu-open body-evaluation. Without the
+    /// guard, every call would write to `devices` and trigger another
+    /// body eval via `@Observable`, looping. With the guard, the
+    /// write only happens when the device list actually changed, so
+    /// steady-state re-opens are free.
     func refresh() {
-        // Intentionally empty for Task 3 — HAL enumeration lands in
-        // Task 4.
+        let fresh = Self.enumerateInputDevices()
+        if fresh != devices {
+            devices = fresh
+        }
     }
 
-    /// Re-enumerates devices and returns the ephemeral `AudioDeviceID`
-    /// corresponding to `selectedUID`, or `nil` if `selectedUID` is
-    /// unset or unresolvable. Added in a later task.
+    /// Re-enumerates and returns the current `AudioDeviceID` for the
+    /// stored `selectedUID`, or `nil` if nothing is pinned or the
+    /// pinned device is not currently present.
     func resolveSelectedDeviceID() -> AudioDeviceID? {
-        // Intentionally returns nil for Task 3 — HAL enumeration
-        // lands in Task 4.
-        return nil
+        guard let selectedUID else { return nil }
+        let current = Self.enumerateInputDevices()
+        return current.first(where: { $0.uid == selectedUID })?.id
+    }
+
+    // MARK: - Core Audio property reads
+
+    private static func enumerateInputDevices() -> [InputDevice] {
+        let ids = allAudioDeviceIDs()
+        var result: [InputDevice] = []
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            guard deviceHasInputStreams(id),
+                  let uid = deviceStringProperty(id, selector: kAudioDevicePropertyDeviceUID),
+                  let name = deviceStringProperty(id, selector: kAudioObjectPropertyName)
+            else { continue }
+            result.append(InputDevice(uid: uid, name: name, id: id))
+        }
+        return result
+    }
+
+    private static func allAudioDeviceIDs() -> [AudioDeviceID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        let sizeStatus = AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &dataSize
+        )
+        guard sizeStatus == noErr, dataSize > 0 else { return [] }
+
+        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var ids = [AudioDeviceID](repeating: 0, count: count)
+        let readStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &dataSize,
+            &ids
+        )
+        guard readStatus == noErr else { return [] }
+        return ids
+    }
+
+    /// True if `id` exposes at least one input stream with non-zero
+    /// channel count. Filters out output-only devices and weird
+    /// aggregate setups that expose a device with zero input streams.
+    private static func deviceHasInputStreams(_ id: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        let sizeStatus = AudioObjectGetPropertyDataSize(id, &address, 0, nil, &dataSize)
+        guard sizeStatus == noErr, dataSize > 0 else { return false }
+
+        let bufferListPtr = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(dataSize),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { bufferListPtr.deallocate() }
+
+        let readStatus = AudioObjectGetPropertyData(id, &address, 0, nil, &dataSize, bufferListPtr)
+        guard readStatus == noErr else { return false }
+
+        let abl = bufferListPtr.assumingMemoryBound(to: AudioBufferList.self)
+        let buffers = UnsafeMutableAudioBufferListPointer(abl)
+        for buffer in buffers where buffer.mNumberChannels > 0 {
+            return true
+        }
+        return false
+    }
+
+    /// Reads a CFString-valued HAL property (UID, human name) on the
+    /// global scope of `id` and bridges it to `String`.
+    private static func deviceStringProperty(
+        _ id: AudioDeviceID,
+        selector: AudioObjectPropertySelector
+    ) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize = UInt32(MemoryLayout<CFString?>.size)
+        var cfString: CFString?
+        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &dataSize, &cfString)
+        guard status == noErr, let cfString else { return nil }
+        return cfString as String
     }
 }
