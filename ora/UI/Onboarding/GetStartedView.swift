@@ -3,7 +3,10 @@
 //  ora
 //
 //  Onboarding view that walks users through the permissions Ora needs.
-//  UI-only mock — no real permission checks, statuses live in @State.
+//  Two modes: pass a real `Permissions` instance for the live onboarding
+//  window, or leave `permissions` nil for previews/tests (mock mode
+//  flips card statuses straight to `.granted` so the flow is still
+//  exercisable from a SwiftUI preview).
 //
 
 import AVFoundation
