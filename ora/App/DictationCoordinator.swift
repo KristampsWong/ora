@@ -75,6 +75,7 @@ final class DictationCoordinator {
     private let overlay: RecordingOverlayController
     private let modelManager: ModelManager
     private let preferences: Preferences
+    private let inputDeviceStore: InputDeviceStore
 
     // MARK: - In-flight task bookkeeping
 
@@ -105,7 +106,8 @@ final class DictationCoordinator {
             paster: Paster(),
             overlay: RecordingOverlayController(),
             modelManager: .shared,
-            preferences: .shared
+            preferences: .shared,
+            inputDeviceStore: InputDeviceStore(preferences: .shared)
         )
     }
 
@@ -119,7 +121,8 @@ final class DictationCoordinator {
         paster: Paster,
         overlay: RecordingOverlayController,
         modelManager: ModelManager,
-        preferences: Preferences
+        preferences: Preferences,
+        inputDeviceStore: InputDeviceStore
     ) {
         self.hotkey = hotkey
         self.recorder = recorder
@@ -128,6 +131,7 @@ final class DictationCoordinator {
         self.overlay = overlay
         self.modelManager = modelManager
         self.preferences = preferences
+        self.inputDeviceStore = inputDeviceStore
     }
 
     // No deinit: under strict concurrency a `@MainActor` class's deinit
@@ -275,8 +279,14 @@ final class DictationCoordinator {
         // 4. Start recording. This is the only check that needs to
         //    talk to AVAudioEngine — anything that goes wrong from
         //    here is generic.
+        //
+        //    Resolving the device ID here (rather than once at launch)
+        //    re-enumerates HAL so a reconnected device picks up the
+        //    pinned selection again, and a disappeared device silently
+        //    falls back to the system default.
         do {
-            try recorder.start()
+            let deviceID = inputDeviceStore.resolveSelectedDeviceID()
+            try recorder.start(deviceID: deviceID)
             transition(to: .recording)
         } catch {
             transition(to: .error(.generic(Self.shortMessage(for: error))))
