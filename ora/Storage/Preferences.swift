@@ -10,6 +10,14 @@
 import Foundation
 import Observation
 
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+}
+
 @Observable
 final class Preferences {
     static let shared = Preferences()
@@ -22,6 +30,9 @@ final class Preferences {
         static let showInStatusBar = "ora.showInStatusBar"
         static let launchAtLogin = "ora.launchAtLogin"
         static let activationKey = "ora.activationKey"
+        static let appearance = "ora.appearance"
+        static let notificationSoundEnabled = "ora.notificationSoundEnabled"
+        static let notificationSoundName = "ora.notificationSoundName"
     }
 
     private let defaults: UserDefaults
@@ -54,6 +65,18 @@ final class Preferences {
         didSet { defaults.set(activationKey.rawValue, forKey: Key.activationKey) }
     }
 
+    var appearance: AppearanceMode {
+        didSet { defaults.set(appearance.rawValue, forKey: Key.appearance) }
+    }
+
+    var notificationSoundEnabled: Bool {
+        didSet { defaults.set(notificationSoundEnabled, forKey: Key.notificationSoundEnabled) }
+    }
+
+    var notificationSoundName: String {
+        didSet { defaults.set(notificationSoundName, forKey: Key.notificationSoundName) }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.selectedModelId = defaults.string(forKey: Key.selectedModelId) ?? "parakeet-v3"
@@ -68,5 +91,13 @@ final class Preferences {
         } else {
             self.activationKey = .default
         }
+        if let raw = defaults.string(forKey: Key.appearance),
+           let mode = AppearanceMode(rawValue: raw) {
+            self.appearance = mode
+        } else {
+            self.appearance = .system
+        }
+        self.notificationSoundEnabled = (defaults.object(forKey: Key.notificationSoundEnabled) as? Bool) ?? true
+        self.notificationSoundName = defaults.string(forKey: Key.notificationSoundName) ?? "Pop"
     }
 }
