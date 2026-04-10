@@ -102,4 +102,30 @@ final class Permissions {
         ) else { return }
         NSWorkspace.shared.open(url)
     }
+
+    // MARK: - Monitoring
+
+    @ObservationIgnored
+    private var monitoringTask: Task<Void, Never>?
+
+    /// Starts polling both permission statuses at the given interval.
+    /// Idempotent — calling twice is a no-op. Call `stopMonitoring()`
+    /// to tear it down. Intended lifetime: `onAppear`/`onDisappear` of
+    /// the onboarding window.
+    func startMonitoring(interval: Duration = .milliseconds(500)) {
+        guard monitoringTask == nil else { return }
+        monitoringTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { break }
+                self?.refreshMicrophoneStatus()
+                self?.refreshAccessibilityStatus()
+            }
+        }
+    }
+
+    func stopMonitoring() {
+        monitoringTask?.cancel()
+        monitoringTask = nil
+    }
 }
