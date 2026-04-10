@@ -40,3 +40,9 @@ fastlane/test_output
 # Copy scripts/dev-env.local.sh.example to scripts/dev-env.local.sh
 # and fill in your own values.
 scripts/dev-env.local.sh
+
+# Development docs (internal plans, specs, design notes)
+docs/
+
+# Profiling artifacts
+*.profraw
