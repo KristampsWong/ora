@@ -2,19 +2,13 @@
 //  GeneralPage.swift
 //  ora
 //
-//  General settings page — UI-only port from WhisperIsland.
-//  No backend wiring: every control binds to local @State,
-//  no real macOS side effects, no STT*/UpdateManager/AppSettings deps.
+//  General settings page.
 //
 
 import SwiftUI
 
 struct GeneralPage: View {
     @Environment(Preferences.self) private var preferences
-    @State private var appearance: String = "System"
-    @State private var notificationSound: String = "Pop"
-    @State private var notificationSoundEnabled: Bool = true
-    @State private var localOnlyMode: Bool = false
 
     private let notificationSounds = ["Pop", "Tink", "Glass", "Hero"]
 
@@ -26,10 +20,10 @@ struct GeneralPage: View {
         let statusToggleLocked = preferences.showInStatusBar && !preferences.showInDock
         return Form {
             Section("Interface") {
-                Picker("Appearance", selection: $appearance) {
-                    Text("System").tag("System")
-                    Text("Dark").tag("Dark")
-                    Text("Light").tag("Light")
+                Picker("Appearance", selection: $preferences.appearance) {
+                    Text("System").tag(AppearanceMode.system)
+                    Text("Light").tag(AppearanceMode.light)
+                    Text("Dark").tag(AppearanceMode.dark)
                 }
             }
 
@@ -44,19 +38,14 @@ struct GeneralPage: View {
             }
 
             Section("Notifications") {
-                Toggle("Play sound", isOn: $notificationSoundEnabled)
+                Toggle("Play sound", isOn: $preferences.notificationSoundEnabled)
 
-                Picker("Sound", selection: $notificationSound) {
+                Picker("Sound", selection: $preferences.notificationSoundName) {
                     ForEach(notificationSounds, id: \.self) { sound in
                         Text(sound).tag(sound)
                     }
                 }
-                .disabled(!notificationSoundEnabled)
-            }
-
-            Section {
-                Toggle("Local mode only", isOn: $localOnlyMode)
-                    .disabled(true)
+                .disabled(!preferences.notificationSoundEnabled)
             }
 
             Section("Other") {
