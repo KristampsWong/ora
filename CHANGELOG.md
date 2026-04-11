@@ -11,6 +11,29 @@ so keep each version section self-contained and user-facing.
 
 ## [Unreleased]
 
+## [0.4] - 2026-04-11
+
+### Added
+- Cloud transcription providers. The OpenAI and Groq cards on the
+  Models page are now live end-to-end: open the gear to paste an API
+  key and model name (e.g. `gpt-4o-transcribe`, `whisper-large-v3`),
+  select the card, and dictation routes to the provider instead of
+  the local Parakeet model. Audio is encoded to AAC/m4a before upload
+  so uploads stay small on slow networks.
+- Toggle activation mode. Settings ▸ Dictation ▸ Input mode now
+  actually flips behavior — "Toggle" means press once to start and
+  press again to stop, while "Push to Talk" keeps the original
+  hold-to-dictate behavior.
+
+### Changed
+- API keys now live in the login Keychain instead of plaintext
+  UserDefaults. Existing installs are migrated automatically the
+  first time you open an API provider's settings sheet, and the old
+  UserDefaults copy is wiped. The settings sheet also gains an
+  explicit Cancel / Done split, so edits only persist when you hit
+  Done.
+- App icon swapped to a minimal slash mark on a dark squircle.
+
 ## [0.3.1] - 2026-04-11
 
 ### Fixed
