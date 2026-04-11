@@ -72,6 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppearanceController.apply(Preferences.shared)
         DictationCoordinator.shared.start()
+        // Touch UpdateController.shared so its init runs, which starts
+        // Sparkle's background update scheduler.
+        _ = UpdateController.shared
     }
 
     /// Don't quit when the last window closes — we live in the menu bar,
