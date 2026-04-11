@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		7DD832A02F8737BA005FAD73 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 7DD8329F2F8737BA005FAD73 /* FluidAudio */; };
 		7DD832B02F900001005FAD73 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 7DD832AF2F900001005FAD73 /* Sparkle */; };
+		7DD832B22F900004005FAD73 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD832B12F900003005FAD73 /* BuildInfo.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +33,7 @@
 		7DD832202F866F9F005FAD73 /* ora.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7DD8322D2F866FA1005FAD73 /* oraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = oraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7DD832372F866FA1005FAD73 /* oraUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = oraUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7DD832B12F900003005FAD73 /* BuildInfo.swift */ = {isa = PBXFileReference; explicitFileType = sourcecode.swift; includeInIndex = 0; path = BuildInfo.swift; sourceTree = DERIVED_FILE_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -119,6 +121,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 7DD832412F866FA1005FAD73 /* Build configuration list for PBXNativeTarget "ora" */;
 			buildPhases = (
+				7DD832B02F900002005FAD73 /* Stamp Git Commit Hash */,
 				7DD8321C2F866F9F005FAD73 /* Sources */,
 				7DD8321D2F866F9F005FAD73 /* Frameworks */,
 				7DD8321E2F866F9F005FAD73 /* Resources */,
@@ -257,11 +260,35 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		7DD832B02F900002005FAD73 /* Stamp Git Commit Hash */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Stamp Git Commit Hash";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/BuildInfo.swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\ncd \"$SRCROOT\"\nHASH=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\nRAW_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo \"\")\nif [ -n \"$RAW_TAG\" ]; then\n  VERSION=\"${RAW_TAG#v}\"\nelse\n  VERSION=\"0.0\"\nfi\nmkdir -p \"$DERIVED_FILE_DIR\"\nOUT=\"$DERIVED_FILE_DIR/BuildInfo.swift\"\nNEW=\"// Generated at build time — do not edit.\\nenum BuildInfo {\\n    static let marketingVersion = \\\"$VERSION\\\"\\n    static let gitCommitHash = \\\"$HASH\\\"\\n}\\n\"\nif [ ! -f \"$OUT\" ] || [ \"$(cat \"$OUT\")\" != \"$(printf '%b' \"$NEW\")\" ]; then\n  printf '%b' \"$NEW\" > \"$OUT\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		7DD8321C2F866F9F005FAD73 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7DD832B22F900004005FAD73 /* BuildInfo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -333,7 +360,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -397,7 +424,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;

@@ -34,6 +34,7 @@ struct oraApp: App {
             ContentView()
                 .environment(preferences)
                 .environment(modelManager)
+                .environment(DictationCoordinator.shared.inputDevices)
                 .onChange(of: preferences.showInDock) { _, newValue in
                     AppearanceController.applyDockVisibility(newValue)
                 }

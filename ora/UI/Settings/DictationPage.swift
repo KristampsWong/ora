@@ -9,9 +9,17 @@ import SwiftUI
 
 struct DictationPage: View {
     @Environment(Preferences.self) private var preferences
+    @Environment(InputDeviceStore.self) private var inputDevices
     @State private var inputMode: InputMode = .pushToTalk
     @State private var testInput: String = ""
     @FocusState private var isTestFocused: Bool
+
+    /// Sentinel UID used by the Input Source picker to represent
+    /// "Follow System Default". Chosen to never collide with a real
+    /// Core Audio UID (which are always non-empty).
+    private static let systemDefaultUID = ""
+
+    private let notificationSounds = ["Pop", "Tink", "Glass", "Hero"]
 
     enum InputMode: String, CaseIterable, Identifiable {
         case pushToTalk
@@ -37,8 +45,31 @@ struct DictationPage: View {
     var body: some View {
         @Bindable var preferences = preferences
         return Form {
+            Section("Input") {
+                Picker("Microphone", selection: inputSourceBinding) {
+                    Text("System Default").tag(Self.systemDefaultUID)
+                    if !inputDevices.devices.isEmpty {
+                        Divider()
+                        ForEach(inputDevices.devices) { device in
+                            Text(device.name).tag(device.uid)
+                        }
+                    }
+                }
+            }
+
             Section("Output") {
                 Toggle("Paste transcript automatically", isOn: $preferences.autoPaste)
+            }
+
+            Section("Notifications") {
+                Toggle("Play sound", isOn: $preferences.notificationSoundEnabled)
+
+                Picker("Sound", selection: $preferences.notificationSoundName) {
+                    ForEach(notificationSounds, id: \.self) { sound in
+                        Text(sound).tag(sound)
+                    }
+                }
+                .disabled(!preferences.notificationSoundEnabled)
             }
 
             Section("Trigger") {
@@ -92,6 +123,26 @@ struct DictationPage: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { inputDevices.refresh() }
+    }
+
+    /// Bridges `InputDeviceStore`'s `String?` selection ("nil = follow
+    /// system default") to a non-optional `String` binding for SwiftUI's
+    /// `Picker`, using an empty-string sentinel. A stale persisted UID
+    /// (device unplugged) also surfaces as "System Default" so the
+    /// picker visually matches the recorder's fallback behavior.
+    private var inputSourceBinding: Binding<String> {
+        Binding(
+            get: {
+                guard let uid = inputDevices.selectedUID,
+                      inputDevices.devices.contains(where: { $0.uid == uid })
+                else { return Self.systemDefaultUID }
+                return uid
+            },
+            set: { newValue in
+                inputDevices.select(uid: newValue == Self.systemDefaultUID ? nil : newValue)
+            }
+        )
     }
 }
 

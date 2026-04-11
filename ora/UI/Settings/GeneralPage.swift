@@ -12,8 +12,6 @@ struct GeneralPage: View {
     @Environment(Preferences.self) private var preferences
     @StateObject private var updateController = UpdateController.shared
 
-    private let notificationSounds = ["Pop", "Tink", "Glass", "Hero"]
-
     var body: some View {
         @Bindable var preferences = preferences
         // Safety rail: don't let the user hide both the dock icon and the
@@ -39,17 +37,6 @@ struct GeneralPage: View {
                 Toggle("Launch at login", isOn: $preferences.launchAtLogin)
             }
 
-            Section("Notifications") {
-                Toggle("Play sound", isOn: $preferences.notificationSoundEnabled)
-
-                Picker("Sound", selection: $preferences.notificationSoundName) {
-                    ForEach(notificationSounds, id: \.self) { sound in
-                        Text(sound).tag(sound)
-                    }
-                }
-                .disabled(!preferences.notificationSoundEnabled)
-            }
-
             Section("Other") {
                 LabeledContent("Updates") {
                     Button("Check for Updates…") {
@@ -64,9 +51,11 @@ struct GeneralPage: View {
     }
 
     private var versionString: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        return "\(version) (\(build))"
+        #if DEBUG
+        return "\(BuildInfo.marketingVersion)-dev (\(BuildInfo.gitCommitHash))"
+        #else
+        return "\(BuildInfo.marketingVersion) (\(BuildInfo.gitCommitHash))"
+        #endif
     }
 }
 
