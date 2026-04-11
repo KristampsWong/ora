@@ -71,7 +71,12 @@ final class DictationCoordinator {
 
     private let hotkey: HotkeyService
     private let recorder: Recorder
-    private let transcriber: FluidAudioTranscriber
+    private let localTranscriber: FluidAudioTranscriber
+    /// Cache of API transcribers keyed by catalog model id. Built lazily
+    /// on first use per provider and reused for the rest of the process —
+    /// `URLSession.shared` is thread-safe and nothing in `APITranscriber`
+    /// holds per-call state, so one instance per provider is enough.
+    private var apiTranscribers: [String: APITranscriber] = [:]
     private let paster: Paster
     private let overlay: RecordingOverlayController
     private let modelManager: ModelManager
@@ -111,7 +116,7 @@ final class DictationCoordinator {
         self.init(
             hotkey: HotkeyService(),
             recorder: Recorder(),
-            transcriber: FluidAudioTranscriber(),
+            localTranscriber: FluidAudioTranscriber(),
             paster: Paster(),
             overlay: RecordingOverlayController(),
             modelManager: .shared,
@@ -126,7 +131,7 @@ final class DictationCoordinator {
     init(
         hotkey: HotkeyService,
         recorder: Recorder,
-        transcriber: FluidAudioTranscriber,
+        localTranscriber: FluidAudioTranscriber,
         paster: Paster,
         overlay: RecordingOverlayController,
         modelManager: ModelManager,
@@ -135,7 +140,7 @@ final class DictationCoordinator {
     ) {
         self.hotkey = hotkey
         self.recorder = recorder
-        self.transcriber = transcriber
+        self.localTranscriber = localTranscriber
         self.paster = paster
         self.overlay = overlay
         self.modelManager = modelManager
@@ -278,11 +283,25 @@ final class DictationCoordinator {
             return
         }
 
-        // 3. Selected model installed?
+        // 3. Selected model installed (local) or configured (API)?
         let selectedId = preferences.selectedModelId ?? "parakeet-v3"
-        if !modelManager.isInstalled(selectedId) {
+        guard let entry = modelManager.catalog.first(where: { $0.id == selectedId }) else {
             transition(to: .error(.noModel))
             return
+        }
+        if entry.isLocal {
+            if !modelManager.isInstalled(selectedId) {
+                transition(to: .error(.noModel))
+                return
+            }
+        } else {
+            // Online model: a missing key or model name is a config
+            // problem, not a "download me" problem — surface it as a
+            // generic pill that points at the settings sheet.
+            if !apiModelIsConfigured(providerId: selectedId) {
+                transition(to: .error(.generic("Configure API in Settings")))
+                return
+            }
         }
 
         // 4. Start recording. This is the only check that needs to
@@ -305,11 +324,20 @@ final class DictationCoordinator {
     // MARK: - Release path: transcribe + paste pipeline
 
     private func startTranscribePipeline(buffer: AVAudioPCMBuffer) {
+        let selectedId = preferences.selectedModelId ?? "parakeet-v3"
+        guard let transcriber = resolveTranscriber(for: selectedId) else {
+            transition(to: .error(.noModel))
+            return
+        }
+        // One line per dictation so you can tell from Console which
+        // backend actually ran — local vs. which API provider.
+        let backend = (transcriber is FluidAudioTranscriber) ? "local" : "api"
+        print("[ora] transcribe route=\(backend) model=\(selectedId)")
         transcribeTask?.cancel()
         transcribeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let text = try await self.transcriber.transcribe(buffer)
+                let text = try await transcriber.transcribe(buffer)
 
                 // The transcriber holds main-actor isolation, so we're
                 // already back on main here. Empty result is treated
@@ -340,6 +368,18 @@ final class DictationCoordinator {
                 case .loadFailed:
                     self.transition(to: .error(.generic(Self.shortMessage(for: failure))))
                 }
+            } catch let failure as APITranscriber.Failure {
+                switch failure {
+                case .missingAPIKey, .missingModel:
+                    // Preflight should have caught these; we only land
+                    // here if the user cleared the sheet between press
+                    // and release. Point them at settings anyway.
+                    self.transition(to: .error(.generic("Configure API in Settings")))
+                case .emptyAudio:
+                    self.transition(to: .idle)
+                case .network, .httpStatus, .decodingFailed, .encodingFailed:
+                    self.transition(to: .error(.generic(Self.shortMessage(for: failure))))
+                }
             } catch let failure as Paster.Failure {
                 switch failure {
                 case .accessibilityNotTrusted:
@@ -358,6 +398,40 @@ final class DictationCoordinator {
                 self.transition(to: .error(.generic(Self.shortMessage(for: error))))
             }
         }
+    }
+
+    // MARK: - Transcriber selection
+
+    /// Picks (and caches) the right `Transcriber` for a catalog id.
+    /// Returns `nil` when the id is unknown or refers to an online
+    /// provider we don't have an adapter for — callers should map that
+    /// to the `.noModel` error so the overlay shows something useful.
+    private func resolveTranscriber(for modelId: String) -> (any Transcriber)? {
+        guard let entry = modelManager.catalog.first(where: { $0.id == modelId }) else {
+            return nil
+        }
+        if entry.isLocal {
+            return localTranscriber
+        }
+        if let cached = apiTranscribers[modelId] {
+            return cached
+        }
+        guard let provider = APITranscriber.provider(for: modelId) else {
+            return nil
+        }
+        let transcriber = APITranscriber(provider: provider)
+        apiTranscribers[modelId] = transcriber
+        return transcriber
+    }
+
+    /// True when the keychain has a key *and* UserDefaults has a model
+    /// name for this provider — both are required for a usable request,
+    /// and both are populated by `APIModelCard`'s settings sheet.
+    private func apiModelIsConfigured(providerId: String) -> Bool {
+        guard KeychainStore.apiKey(provider: providerId) != nil else { return false }
+        let modelKey = APITranscriber.modelDefaultsKey(for: providerId)
+        let modelName = UserDefaults.standard.string(forKey: modelKey) ?? ""
+        return !modelName.isEmpty
     }
 
     // MARK: - State transitions

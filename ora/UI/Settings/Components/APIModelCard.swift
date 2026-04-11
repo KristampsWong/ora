@@ -90,16 +90,8 @@ private struct APISettingsSheet: View {
     let providerName: String
 
     @Environment(\.dismiss) private var dismiss
-    @AppStorage private var apiKey: String
-    @AppStorage private var selectedModel: String
-
-    init(providerId: String, providerName: String) {
-        self.providerId = providerId
-        self.providerName = providerName
-        // TODO: migrate apiKey to Keychain — AppStorage is plaintext UserDefaults.
-        _apiKey = AppStorage(wrappedValue: "", "api.\(providerId).key")
-        _selectedModel = AppStorage(wrappedValue: "", "api.\(providerId).model")
-    }
+    @State private var apiKey: String = ""
+    @State private var selectedModel: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -128,12 +120,35 @@ private struct APISettingsSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
+                Button("Done") {
+                    save()
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
         .frame(width: 360, height: 240)
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        let defaults = UserDefaults.standard
+        // One-shot migration from the old AppStorage-backed key location.
+        // Zero out the plaintext copy once it's safely in the Keychain so
+        // UserDefaults stops hoarding secrets for existing installs.
+        let legacyKey = "api.\(providerId).key"
+        if let legacy = defaults.string(forKey: legacyKey), !legacy.isEmpty {
+            try? KeychainStore.setAPIKey(legacy, provider: providerId)
+            defaults.removeObject(forKey: legacyKey)
+        }
+        apiKey = KeychainStore.apiKey(provider: providerId) ?? ""
+        selectedModel = defaults.string(forKey: APITranscriber.modelDefaultsKey(for: providerId)) ?? ""
+    }
+
+    private func save() {
+        try? KeychainStore.setAPIKey(apiKey, provider: providerId)
+        UserDefaults.standard.set(selectedModel, forKey: APITranscriber.modelDefaultsKey(for: providerId))
     }
 
     private static func modelPlaceholder(for providerId: String) -> String {
