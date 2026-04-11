@@ -18,6 +18,30 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// How the activation hotkey arms and disarms the recorder.
+/// - `pushToTalk`: hold the key, release to stop (the original default).
+/// - `toggle`: first press starts recording, second press stops it.
+enum ActivationMode: String, CaseIterable, Identifiable {
+    case pushToTalk
+    case toggle
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pushToTalk: "Push to Talk"
+        case .toggle: "Toggle"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .pushToTalk: "Hold the key to dictate, release to stop."
+        case .toggle: "Press once to start, press again to stop."
+        }
+    }
+}
+
 @Observable
 final class Preferences {
     static let shared = Preferences()
@@ -30,6 +54,7 @@ final class Preferences {
         static let showInStatusBar = "ora.showInStatusBar"
         static let launchAtLogin = "ora.launchAtLogin"
         static let activationKey = "ora.activationKey"
+        static let activationMode = "ora.activationMode"
         static let appearance = "ora.appearance"
         static let notificationSoundEnabled = "ora.notificationSoundEnabled"
         static let notificationSoundName = "ora.notificationSoundName"
@@ -64,6 +89,10 @@ final class Preferences {
 
     var activationKey: ActivationKey {
         didSet { defaults.set(activationKey.rawValue, forKey: Key.activationKey) }
+    }
+
+    var activationMode: ActivationMode {
+        didSet { defaults.set(activationMode.rawValue, forKey: Key.activationMode) }
     }
 
     var appearance: AppearanceMode {
@@ -105,6 +134,12 @@ final class Preferences {
             self.activationKey = key
         } else {
             self.activationKey = .default
+        }
+        if let raw = defaults.string(forKey: Key.activationMode),
+           let mode = ActivationMode(rawValue: raw) {
+            self.activationMode = mode
+        } else {
+            self.activationMode = .pushToTalk
         }
         if let raw = defaults.string(forKey: Key.appearance),
            let mode = AppearanceMode(rawValue: raw) {

@@ -208,10 +208,19 @@ final class DictationCoordinator {
 
     private func handlePress() {
         switch state {
-        case .recording, .transcribing:
+        case .transcribing:
             // Busy — silently ignore. See design doc § Why ignore
             // re-press while busy.
             return
+
+        case .recording:
+            // Push-to-talk: release is the canonical stop, so a second
+            // press while recording is noise and we drop it.
+            // Toggle: second press *is* the stop — run the same
+            // tail we'd run on release.
+            if preferences.activationMode == .toggle {
+                stopRecordingAndTranscribe()
+            }
 
         case .idle:
             startNewDictation()
@@ -233,7 +242,17 @@ final class DictationCoordinator {
             // transcribing/error/idle. Nothing to stop.
             return
         }
+        // In toggle mode, the key going up after the first press is a
+        // no-op — we wait for the *next* press to stop the recorder.
+        if preferences.activationMode == .toggle { return }
+        stopRecordingAndTranscribe()
+    }
 
+    /// Shared stop-and-transcribe tail used by both the push-to-talk
+    /// release and the toggle-mode second press. Keeping this in one
+    /// place means the too-short guard and the error mapping stay in
+    /// sync across both input modes.
+    private func stopRecordingAndTranscribe() {
         do {
             let buffer = try recorder.stop()
 

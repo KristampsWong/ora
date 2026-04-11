@@ -10,7 +10,6 @@ import SwiftUI
 struct DictationPage: View {
     @Environment(Preferences.self) private var preferences
     @Environment(InputDeviceStore.self) private var inputDevices
-    @State private var inputMode: InputMode = .pushToTalk
     @State private var testInput: String = ""
     @FocusState private var isTestFocused: Bool
 
@@ -20,27 +19,6 @@ struct DictationPage: View {
     private static let systemDefaultUID = ""
 
     private let notificationSounds = ["Pop", "Tink", "Glass", "Hero"]
-
-    enum InputMode: String, CaseIterable, Identifiable {
-        case pushToTalk
-        case toggle
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .pushToTalk: "Push to Talk"
-            case .toggle: "Toggle"
-            }
-        }
-
-        var description: String {
-            switch self {
-            case .pushToTalk: "Hold the key to dictate, release to stop."
-            case .toggle: "Press once to start, press again to stop."
-            }
-        }
-    }
 
     var body: some View {
         @Bindable var preferences = preferences
@@ -82,14 +60,14 @@ struct DictationPage: View {
                     DictationCoordinator.shared.updateHotkey()
                 }
 
-                Picker("Input mode", selection: $inputMode) {
-                    ForEach(InputMode.allCases) { mode in
+                Picker("Input mode", selection: $preferences.activationMode) {
+                    ForEach(ActivationMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                Text(inputMode.description)
+                Text(preferences.activationMode.description)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
