@@ -21,6 +21,17 @@ struct ModelEntry: Identifiable, Equatable {
     let isOnline: Bool
     var status: Status
 
+    /// Asset name for the provider's brand icon (OpenAI / NVIDIA / Groq).
+    /// `nil` falls back to the card's generic SF Symbol.
+    var brandIconAsset: String? {
+        switch id {
+        case "parakeet-v2", "parakeet-v3": "BrandNvidia"
+        case "openai-api": "BrandOpenAI"
+        case "groq-api": "BrandGroq"
+        default: nil
+        }
+    }
+
     enum Status: Equatable {
         case downloaded
         case notDownloaded

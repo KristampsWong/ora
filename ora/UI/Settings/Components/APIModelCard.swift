@@ -17,14 +17,25 @@ struct APIModelCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Image(systemName: "cloud.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.blue)
-                )
+            Group {
+                if let asset = model.brandIconAsset {
+                    Image(asset)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "cloud.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.blue)
+                        )
+                }
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {

@@ -30,14 +30,25 @@ struct LocalModelCard: View {
         // the content header — means its caption text (e.g. "2m30s") can
         // grow vertically without pushing the description or chips down.
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .frame(width: 32, height: 32)
-                .overlay(
-                    Image(systemName: "eye")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.green)
-                )
+            Group {
+                if let asset = model.brandIconAsset {
+                    Image(asset)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "eye")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.green)
+                        )
+                }
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.name)
