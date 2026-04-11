@@ -147,24 +147,34 @@ if [ -f "$DMG_PATH" ]; then
     rm -f "$DMG_PATH"
 fi
 
-if command -v create-dmg &> /dev/null; then
-    echo "Using create-dmg for prettier output..."
-    create-dmg \
-        --volname "ora" \
-        --window-size 600 400 \
-        --icon-size 100 \
-        --icon "ora.app" 150 200 \
-        --app-drop-link 450 200 \
-        --hide-extension "ora.app" \
-        "$DMG_PATH" \
-        "$APP_PATH"
-else
-    echo "Using hdiutil (install create-dmg for prettier DMG: brew install create-dmg)"
-    hdiutil create -volname "ora" \
-        -srcfolder "$APP_PATH" \
-        -ov -format UDZO \
-        "$DMG_PATH"
+if ! command -v create-dmg &> /dev/null; then
+    echo "ERROR: create-dmg not found. Install it with:"
+    echo "  brew install create-dmg"
+    echo ""
+    echo "create-dmg is required so the DMG includes a drag-to-Applications"
+    echo "shortcut — otherwise users have to open a second Finder window."
+    exit 1
 fi
+
+# Optional background image. Drop a PNG at scripts/dmg-assets/background.png
+# (540x380) and/or background@2x.png (1080x760) to get the Figma-style
+# "drag the app onto Applications" arrow layout. If missing, create-dmg
+# still lays out the icon + Applications shortcut — just without a backdrop.
+DMG_BACKGROUND="$SCRIPT_DIR/dmg-assets/background.png"
+CREATE_DMG_ARGS=(
+    --volname "Ora"
+    --window-size 540 380
+    --icon-size 110
+    --icon "ora.app" 140 190
+    --app-drop-link 400 190
+    --hide-extension "ora.app"
+)
+if [ -f "$DMG_BACKGROUND" ]; then
+    echo "Using DMG background: $DMG_BACKGROUND"
+    CREATE_DMG_ARGS+=(--background "$DMG_BACKGROUND")
+fi
+
+create-dmg "${CREATE_DMG_ARGS[@]}" "$DMG_PATH" "$APP_PATH"
 
 echo "DMG created: $DMG_PATH"
 echo ""
@@ -289,8 +299,8 @@ $RELEASE_NOTES
 
 ### Installation
 1. Download \`$DMG_FILENAME\`
-2. Open the DMG and drag ora to Applications
-3. Launch ora from Applications
+2. Open the DMG and drag Ora onto the Applications shortcut
+3. Launch Ora from Applications
 
 ### Auto-updates
 After installation, ora will automatically check for updates."

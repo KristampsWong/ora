@@ -11,6 +11,17 @@ so keep each version section self-contained and user-facing.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-11
+
+### Fixed
+- App now displays as **Ora** (capitalized) in Finder, Dock, the menu
+  bar, and the About window. The bundle identifier is unchanged, so
+  existing installs upgrade in place.
+- DMG installer now ships with a drag-to-Applications shortcut, so new
+  users can install without opening a second Finder window. The release
+  script requires `create-dmg` (`brew install create-dmg`) and will
+  fail fast instead of silently falling back to a bare DMG.
+
 ## [0.3] - 2026-04-11
 
 ### Added
