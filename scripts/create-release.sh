@@ -15,11 +15,18 @@ EXPORT_PATH="$BUILD_DIR/export"
 RELEASE_DIR="$PROJECT_DIR/releases"
 KEYS_DIR="$PROJECT_DIR/.sparkle-keys"
 
+# Source the gitignored local dev env so a contributor can point at
+# their own notarytool keychain profile without editing this script.
+if [ -f "$PROJECT_DIR/scripts/dev-env.local.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_DIR/scripts/dev-env.local.sh"
+fi
+
 GITHUB_REPO="KristampsWong/ora"
 
 APP_PATH="$EXPORT_PATH/ora.app"
 APP_NAME="ora"
-KEYCHAIN_PROFILE="ora"
+KEYCHAIN_PROFILE="${ORA_NOTARY_PROFILE:-ora}"
 MIN_SYSTEM_VERSION="26.2"
 
 echo "=== Creating Release ==="

@@ -11,7 +11,13 @@ so keep each version section self-contained and user-facing.
 
 ## [Unreleased]
 
+## [0.2] - 2026-04-10
+
 ### Added
 - Sparkle-powered automatic updates. The General settings page now
   includes a "Check for Updates…" button, and ora checks for updates
   in the background on launch.
+- Input source selection. General settings now lets you pin a specific
+  microphone for dictation, or follow the system default.
+- Appearance preference (System / Light / Dark) and configurable
+  notification sound, wired into the General settings page.
