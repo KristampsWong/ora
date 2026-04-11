@@ -18,6 +18,7 @@ enum AppearanceController {
     static func apply(_ preferences: Preferences) {
         applyDockVisibility(preferences.showInDock)
         applyLaunchAtLogin(preferences.launchAtLogin)
+        applyAppearance(preferences.appearance)
     }
 
     static func applyDockVisibility(_ visible: Bool) {
@@ -37,6 +38,26 @@ enum AppearanceController {
                 front.orderFrontRegardless()
             }
         }
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async { work() }
+        }
+    }
+
+    /// Applies the user's chosen appearance to the whole AppKit app.
+    /// `.system` clears the override so the OS theme drives it.
+    static func applyAppearance(_ mode: AppearanceMode) {
+        let appearance: NSAppearance?
+        switch mode {
+        case .system:
+            appearance = nil
+        case .light:
+            appearance = NSAppearance(named: .aqua)
+        case .dark:
+            appearance = NSAppearance(named: .darkAqua)
+        }
+        let work = { NSApplication.shared.appearance = appearance }
         if Thread.isMainThread {
             work()
         } else {
