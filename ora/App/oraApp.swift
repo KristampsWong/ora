@@ -118,7 +118,7 @@ private struct MenuBarIcon: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(systemName: "waveform")
+        Image("MenuBarIcon")
             .accessibilityLabel("Ora")
             .task {
                 let shouldShow = !Preferences.shared.hasCompletedOnboarding
