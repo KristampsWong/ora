@@ -115,11 +115,19 @@ final class Recorder {
 
     // MARK: - Lifecycle
 
-    /// Begins recording from the default input device. Must be called
-    /// after `MicrophonePermission.request()` has resolved to `true` —
+    /// Begins recording from the given input device, or the system
+    /// default when `deviceID` is `nil`. Must be called after
+    /// `MicrophonePermission.request()` has resolved to `true` —
     /// starting the engine without authorization puts the input node
     /// into a zombie state that reports silence forever.
-    func start() throws {
+    ///
+    /// `deviceID` is an ephemeral `AudioDeviceID` resolved just-in-time
+    /// from `InputDeviceStore.resolveSelectedDeviceID()`. If applying
+    /// the override fails (e.g. the device was grabbed exclusively
+    /// between resolve-time and now), we log the `OSStatus` and
+    /// continue with the system default — see the design spec's
+    /// silent-fallback policy.
+    func start(deviceID: AudioDeviceID? = nil) throws {
         guard MicrophonePermission.status == .authorized else {
             throw Failure.notAuthorized
         }
@@ -128,6 +136,15 @@ final class Recorder {
         accumulated.removeAll(keepingCapacity: true)
 
         let input = engine.inputNode
+
+        // Apply the device override BEFORE reading inputFormat — the
+        // hardware format is device-specific, and querying it before
+        // the override would pin the pipeline to the old default's
+        // format.
+        if let deviceID {
+            Self.applyInputDeviceOverride(on: input, deviceID: deviceID)
+        }
+
         // The hardware format for the input bus. We install the tap in
         // this format and convert downstream — installing a tap in a
         // non-native format is accepted by the API but behaves oddly on
@@ -278,6 +295,35 @@ final class Recorder {
             }
         }
         return buffer
+    }
+
+    // MARK: - Device override
+
+    /// Sets `kAudioOutputUnitProperty_CurrentDevice` on the input
+    /// node's underlying audio unit. Logs and returns silently on
+    /// failure — the caller continues with whatever device the unit
+    /// was already bound to (typically the system default).
+    private static func applyInputDeviceOverride(
+        on input: AVAudioInputNode,
+        deviceID: AudioDeviceID
+    ) {
+        guard let audioUnit = input.audioUnit else {
+            NSLog("[Recorder] inputNode.audioUnit was nil; skipping device override")
+            return
+        }
+
+        var mutableID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            NSLog("[Recorder] AudioUnitSetProperty CurrentDevice failed: OSStatus=\(status); using system default")
+        }
     }
 }
 

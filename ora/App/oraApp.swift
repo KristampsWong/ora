@@ -24,6 +24,7 @@ struct oraApp: App {
             MenuBarView()
                 .environment(preferences)
                 .environment(modelManager)
+                .environment(DictationCoordinator.shared.inputDevices)
         } label: {
             MenuBarIcon(permissions: appDelegate.permissions)
         }

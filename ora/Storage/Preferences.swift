@@ -33,6 +33,7 @@ final class Preferences {
         static let appearance = "ora.appearance"
         static let notificationSoundEnabled = "ora.notificationSoundEnabled"
         static let notificationSoundName = "ora.notificationSoundName"
+        static let selectedInputDeviceUID = "ora.selectedInputDeviceUID"
     }
 
     private let defaults: UserDefaults
@@ -77,6 +78,20 @@ final class Preferences {
         didSet { defaults.set(notificationSoundName, forKey: Key.notificationSoundName) }
     }
 
+    /// UID of the input device the user pinned for dictation. `nil`
+    /// means "Follow System Default" — the recorder uses whatever the
+    /// system default input is at record time. Stable across reboots
+    /// and reconnects (HAL `kAudioDevicePropertyDeviceUID`).
+    var selectedInputDeviceUID: String? {
+        didSet {
+            if let selectedInputDeviceUID {
+                defaults.set(selectedInputDeviceUID, forKey: Key.selectedInputDeviceUID)
+            } else {
+                defaults.removeObject(forKey: Key.selectedInputDeviceUID)
+            }
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.selectedModelId = defaults.string(forKey: Key.selectedModelId) ?? "parakeet-v3"
@@ -99,5 +114,6 @@ final class Preferences {
         }
         self.notificationSoundEnabled = (defaults.object(forKey: Key.notificationSoundEnabled) as? Bool) ?? true
         self.notificationSoundName = defaults.string(forKey: Key.notificationSoundName) ?? "Pop"
+        self.selectedInputDeviceUID = defaults.string(forKey: Key.selectedInputDeviceUID)
     }
 }
