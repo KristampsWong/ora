@@ -19,36 +19,12 @@
     {
       "layers" : [
         {
-          "fill" : {
-            "linear-gradient" : [
-              "extended-gray:1.00000,1.00000",
-              "srgb:0.60000,0.60000,0.60000,1.00000"
-            ],
-            "orientation" : {
-              "start" : {
-                "x" : 0.5,
-                "y" : 0
-              },
-              "stop" : {
-                "x" : 0.5,
-                "y" : 0.7
-              }
-            }
-          },
           "glass" : false,
           "hidden" : false,
-          "image-name" : "Vector 14 2.svg",
-          "name" : "Vector 14 2"
+          "image-name" : "ora-flat.png",
+          "name" : "ora-flat"
         }
-      ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
-      },
-      "translucency" : {
-        "enabled" : true,
-        "value" : 0.5
-      }
+      ]
     }
   ],
   "supported-platforms" : {
