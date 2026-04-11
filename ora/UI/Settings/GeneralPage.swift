@@ -2,15 +2,15 @@
 //  GeneralPage.swift
 //  ora
 //
-//  General settings page — UI-only port from WhisperIsland.
-//  No backend wiring: every control binds to local @State,
-//  no real macOS side effects, no STT*/UpdateManager/AppSettings deps.
+//  General settings page — UI-only port from WhisperIsland, now with
+//  Sparkle-backed "Check for Updates…" wired into the Other section.
 //
 
 import SwiftUI
 
 struct GeneralPage: View {
     @Environment(Preferences.self) private var preferences
+    @StateObject private var updateController = UpdateController.shared
     @State private var appearance: String = "System"
     @State private var notificationSound: String = "Pop"
     @State private var notificationSoundEnabled: Bool = true
@@ -60,7 +60,12 @@ struct GeneralPage: View {
             }
 
             Section("Other") {
-                LabeledContent("Updates", value: "Up to date")
+                LabeledContent("Updates") {
+                    Button("Check for Updates…") {
+                        updateController.checkForUpdates()
+                    }
+                    .disabled(!updateController.canCheckForUpdates)
+                }
                 LabeledContent("Installed", value: versionString)
             }
         }

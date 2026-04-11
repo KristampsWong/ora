@@ -49,3 +49,12 @@ docs/
 
 # Git worktrees
 .worktrees/
+
+# Sparkle signing keys — the EdDSA private key used to sign update DMGs
+# MUST NEVER be committed. scripts/generate-keys.sh writes it here and
+# also stores it in the macOS Keychain as a secondary copy.
+.sparkle-keys/
+
+# Release build artifacts (signed DMG + appcast.xml) produced by
+# scripts/create-release.sh before they get uploaded to a GitHub Release.
+releases/
