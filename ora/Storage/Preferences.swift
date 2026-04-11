@@ -19,24 +19,24 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 /// How the activation hotkey arms and disarms the recorder.
-/// - `pushToTalk`: hold the key, release to stop (the original default).
+/// - `hold`: hold the key, release to stop (the original default).
 /// - `toggle`: first press starts recording, second press stops it.
 enum ActivationMode: String, CaseIterable, Identifiable {
-    case pushToTalk
+    case hold
     case toggle
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .pushToTalk: "Push to Talk"
+        case .hold: "Hold"
         case .toggle: "Toggle"
         }
     }
 
     var description: String {
         switch self {
-        case .pushToTalk: "Hold the key to dictate, release to stop."
+        case .hold: "Hold the key to dictate, release to stop."
         case .toggle: "Press once to start, press again to stop."
         }
     }
@@ -139,7 +139,7 @@ final class Preferences {
            let mode = ActivationMode(rawValue: raw) {
             self.activationMode = mode
         } else {
-            self.activationMode = .pushToTalk
+            self.activationMode = .hold
         }
         if let raw = defaults.string(forKey: Key.appearance),
            let mode = AppearanceMode(rawValue: raw) {

@@ -60,7 +60,7 @@ struct DictationPage: View {
                     DictationCoordinator.shared.updateHotkey()
                 }
 
-                Picker("Input mode", selection: $preferences.activationMode) {
+                Picker("Mode", selection: $preferences.activationMode) {
                     ForEach(ActivationMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }

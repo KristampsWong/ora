@@ -248,7 +248,7 @@ final class DictationCoordinator {
         stopRecordingAndTranscribe()
     }
 
-    /// Shared stop-and-transcribe tail used by both the push-to-talk
+    /// Shared stop-and-transcribe tail used by both the hold-mode
     /// release and the toggle-mode second press. Keeping this in one
     /// place means the too-short guard and the error mapping stay in
     /// sync across both input modes.
